@@ -14,12 +14,17 @@ object PanelIds {
     const val MEDIA = "media"
     const val SCHEDULE = "schedule"
     const val HISTORY = "history"
+    const val CLOCK = "clock"
+    const val CALENDAR = "calendar"
+    const val STATUS = "status"
+    const val NETWORK = "network"
+    const val FAVORITES = "favorites"
 
     /** メモパネルのID接頭辞 */
     const val MEMO_PREFIX = "memo:"
 
     /** 1 つずつしか開かないパネル */
-    val SINGLETONS = listOf(TERMINAL, DRAWER, SETTINGS, MEDIA, SCHEDULE, HISTORY)
+    val SINGLETONS = listOf(TERMINAL, DRAWER, SETTINGS, MEDIA, SCHEDULE, HISTORY, CLOCK, CALENDAR, STATUS, NETWORK, FAVORITES)
 
     fun isMemo(id: String): Boolean = id.startsWith(MEMO_PREFIX)
     fun memoPanelId(memoId: String): String = MEMO_PREFIX + memoId
@@ -33,6 +38,11 @@ object PanelIds {
         MEDIA -> "Media"
         SCHEDULE -> "Schedule"
         HISTORY -> "History"
+        CLOCK -> "Clock"
+        CALENDAR -> "Calendar"
+        STATUS -> "Status"
+        NETWORK -> "Network"
+        FAVORITES -> "Favorites"
         else -> if (isMemo(id)) "Memo" else id
     }
 }
@@ -40,7 +50,7 @@ object PanelIds {
 // パネル1枚分の保存データ
 @Serializable
 data class PanelState(
-    val id: String,        // パネルID（terminal / drawer / settings / media / schedule / history / memo:<ID>）
+    val id: String,        // パネルID（terminal / drawer / settings / media / schedule / history / clock / calendar / status / network / favorites / memo:<ID>）
     val xDp: Float,        // 左上X座標（dp）
     val yDp: Float,        // 左上Y座標（dp）
     val widthDp: Float,    // 幅（dp）
