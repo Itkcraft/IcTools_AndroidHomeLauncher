@@ -2,8 +2,31 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
-    <!-- スケジュールパネル：端末のカレンダーの予定を読む（読み取りのみ） -->
+    <!-- スケジュール・カレンダーパネル：端末のカレンダーの予定を読む（読み取りのみ） -->
     <uses-permission android:name="android.permission.READ_CALENDAR" />
+    <!-- 音楽波形：Visualizer で出力音声を解析するために必要（録音はしない） -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <!-- EQ・Visualizer：オーディオエフェクトの適用 -->
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+    <!-- ターミナルのファイル操作：内部ストレージ全体へのアクセス -->
+    <uses-permission
+        android:name="android.permission.MANAGE_EXTERNAL_STORAGE"
+        tools:ignore="ScopedStorage" />
+    <!-- 稼働状況：最近使ったアプリと使用時間 -->
+    <uses-permission
+        android:name="android.permission.PACKAGE_USAGE_STATS"
+        tools:ignore="ProtectedPermissions" />
+    <!-- 通信パネル：接続状態・Wi-Fi 情報・SSID（位置情報）・回線種別（電話の状態） -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.READ_PHONE_STATE" />
+
+    <!-- カメラ・ライトは必須ではない（無い端末でもインストール可能） -->
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
+    <uses-feature android:name="android.hardware.camera.flash" android:required="false" />
+    <uses-feature android:name="android.hardware.telephony" android:required="false" />
 
     <!-- ランチャーに表示されるアプリ（MAIN + LAUNCHER）を取得可能にする -->
     <queries>
@@ -11,9 +34,19 @@
             <action android:name="android.intent.action.MAIN" />
             <category android:name="android.intent.category.LAUNCHER" />
         </intent>
+        <!-- camera コマンド -->
+        <intent>
+            <action android:name="android.media.action.STILL_IMAGE_CAMERA" />
+        </intent>
+        <!-- ターミナルの open：ファイルを開けるアプリ -->
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:mimeType="*/*" />
+        </intent>
     </queries>
 
     <application
+        android:name=".IhlApplication"
         android:allowBackup="true"
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher"
@@ -54,5 +87,16 @@
                 <action android:name="android.service.notification.NotificationListenerService" />
             </intent-filter>
         </service>
+
+        <!-- ターミナルの open：ファイルを他アプリへ渡す -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.files"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
     </application>
 </manifest>

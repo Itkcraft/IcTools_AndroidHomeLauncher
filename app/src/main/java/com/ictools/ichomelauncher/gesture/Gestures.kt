@@ -35,6 +35,11 @@ enum class GestureAction(val id: String, val label: String) {
     OPEN_MEDIA("open_media", "open media"),
     OPEN_SCHEDULE("open_schedule", "open schedule"),
     OPEN_HISTORY("open_history", "open history"),
+    OPEN_CLOCK("open_clock", "open clock"),
+    OPEN_CALENDAR("open_calendar", "open calendar"),
+    OPEN_STATUS("open_status", "open status"),
+    OPEN_NETWORK("open_network", "open network"),
+    OPEN_FAVORITES("open_favorites", "open favorites"),
     NEW_MEMO("new_memo", "new memo"),
     CLOSE_FOCUSED("close_focused", "close focused"),
     CLOSE_ALL("close_all", "close all");

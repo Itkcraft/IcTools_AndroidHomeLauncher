@@ -23,6 +23,19 @@ import com.ictools.ichomelauncher.data.PanelRepository
 import com.ictools.ichomelauncher.data.PanelState
 import com.ictools.ichomelauncher.data.PendingIntents
 import com.ictools.ichomelauncher.data.Permissions
+import com.ictools.ichomelauncher.data.PermissionState
+import com.ictools.ichomelauncher.data.Appearance
+import com.ictools.ichomelauncher.data.AudioEffects
+import com.ictools.ichomelauncher.data.EqState
+import com.ictools.ichomelauncher.data.FavoritesRepository
+import com.ictools.ichomelauncher.data.MediaSettings
+import com.ictools.ichomelauncher.data.NetworkMonitor
+import com.ictools.ichomelauncher.data.NetworkSnapshot
+import com.ictools.ichomelauncher.data.SystemSnapshot
+import com.ictools.ichomelauncher.data.SystemStatus
+import com.ictools.ichomelauncher.data.TorchController
+import com.ictools.ichomelauncher.ui.terminal.FileShell
+import android.provider.MediaStore
 import com.ictools.ichomelauncher.data.SettingsRepository
 import com.ictools.ichomelauncher.gesture.GestureAction
 import com.ictools.ichomelauncher.gesture.GestureType
@@ -62,9 +75,15 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     private val appRepository = AppRepository(application, viewModelScope)
     private val memoRepository = MemoRepository(application)
     private val historyRepository = HistoryRepository(application)
-    private val mediaRepository = MediaRepository(application)
+    private val mediaRepository = MediaRepository(application, viewModelScope)
     private val calendarRepository = CalendarRepository(application)
     private val notificationHistory = NotificationHistory.get(application)
+    private val favoritesRepository = FavoritesRepository(application)
+    private val torch = TorchController(application)
+    private val systemStatus = SystemStatus(application)
+    private val networkMonitor = NetworkMonitor(application)
+    private val audioEffects = AudioEffects.get(application)
+    private val fileShell = FileShell(application)
 
     /** インストール済みアプリ一覧 */
     val apps: StateFlow<List<AppEntry>> = appRepository.apps
@@ -79,15 +98,10 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
 
     // ---- 権限 ----
 
-    private val _notificationAccess = MutableStateFlow(Permissions.hasNotificationAccess(application))
+    private val _permissions = MutableStateFlow(Permissions.current(application))
 
-    /** 「通知へのアクセス」が許可されているか（メディア・通知履歴に必要） */
-    val notificationAccess: StateFlow<Boolean> = _notificationAccess.asStateFlow()
-
-    private val _calendarAccess = MutableStateFlow(Permissions.hasCalendar(application))
-
-    /** カレンダーの読み取りが許可されているか（スケジュールに必要） */
-    val calendarAccess: StateFlow<Boolean> = _calendarAccess.asStateFlow()
+    /** 各権限の許可状態 */
+    val permissions: StateFlow<PermissionState> = _permissions.asStateFlow()
 
     // ---- パネル ----
 
@@ -130,10 +144,36 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     /** 表示期間内の予定 */
     val events: StateFlow<List<CalendarEvent>> = _events.asStateFlow()
 
+    private val _eventsVersion = MutableStateFlow(0)
+
+    /** 予定が変わるたびに増える番号（カレンダーパネルの読み直し用） */
+    val eventsVersion: StateFlow<Int> = _eventsVersion.asStateFlow()
+
+    /** EQ の状態 */
+    val eq: StateFlow<EqState> = audioEffects.state
+
+    /** 通信状況 */
+    val network: StateFlow<NetworkSnapshot> = networkMonitor.state
+
+    // ---- お気に入り ----
+
+    private val _favoriteKeys = MutableStateFlow<List<String>>(emptyList())
+
+    /** お気に入りアプリのキー（並び順） */
+    val favoriteKeys: StateFlow<List<String>> = _favoriteKeys.asStateFlow()
+
     // ---- ターミナル ----
 
     /** ターミナルのセッション（ログ・履歴・コマンド実行） */
     val terminal = TerminalSession(object : TerminalHost {
+        override fun favorites() = favoriteApps()
+        override fun addFavorite(app: AppEntry) = this@LauncherViewModel.addFavorite(app)
+        override fun removeFavorite(app: AppEntry) = this@LauncherViewModel.removeFavorite(app)
+        override fun openCamera() = this@LauncherViewModel.openCamera()
+        override fun torchOn() = torch.isOn.value
+        override fun setTorch(on: Boolean) = torch.set(on)
+        override fun startActivity(intent: Intent) = startActivitySafely(intent)
+        override fun requestAllFilesAccess() = this@LauncherViewModel.requestAllFilesAccess()
         override fun apps() = appRepository.apps.value
         override fun launchApp(app: AppEntry) = this@LauncherViewModel.launchApp(app)
         override fun openPanel(id: String) = this@LauncherViewModel.openPanel(id)
@@ -145,12 +185,13 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         override fun onHistoryChanged(history: List<String>) {
             viewModelScope.launch { historyRepository.saveCommands(history) }
         }
-    })
+    }, fileShell, viewModelScope)
 
     init {
         viewModelScope.launch {
             terminal.restoreHistory(historyRepository.loadCommands())
             _launchHistory.value = historyRepository.loadLaunches()
+            _favoriteKeys.value = favoritesRepository.load()
         }
         mediaRepository.start()
         // 表示日数が変わったら予定を読み直す
@@ -167,15 +208,12 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
 
     /** 権限の状態を確認し直す（設定画面から戻ってきたとき等に呼ぶ） */
     fun refreshPermissions() {
-        val notification = Permissions.hasNotificationAccess(app)
-        _notificationAccess.value = notification
-        if (notification) mediaRepository.start() else mediaRepository.stop()
-
-        val calendar = Permissions.hasCalendar(app)
-        val calendarChanged = calendar != _calendarAccess.value
-        _calendarAccess.value = calendar
-        if (calendar) calendarRepository.observe { reloadEvents() } else calendarRepository.stopObserving()
-        if (calendarChanged || calendar) reloadEvents()
+        val p = Permissions.current(app)
+        _permissions.value = p
+        if (p.notificationAccess) mediaRepository.start() else mediaRepository.stop()
+        if (p.calendar) calendarRepository.observe { reloadEvents() } else calendarRepository.stopObserving()
+        reloadEvents()
+        networkMonitor.refreshPermissions()
     }
 
     /** 画面サイズ（dp）の通知。初回はここで保存データを読み込み、以降は画面内に収まるよう補正する */
@@ -219,7 +257,12 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
             closed(PanelIds.MEDIA, listW, 170f, h * 0.12f, 2),
             closed(PanelIds.SCHEDULE, listW, min(420f, h * 0.5f), h * 0.1f, 3),
             closed(PanelIds.HISTORY, listW, min(440f, h * 0.55f), h * 0.1f, 4),
-            PanelState(PanelIds.TERMINAL, centeredX(termW), termY, termW, termH, isOpen = true, zOrder = 5)
+            closed(PanelIds.CLOCK, min(w - 32f, 260f), 150f, h * 0.08f, 5),
+            closed(PanelIds.CALENDAR, listW, min(440f, h * 0.55f), h * 0.1f, 6),
+            closed(PanelIds.STATUS, listW, min(460f, h * 0.6f), h * 0.1f, 7),
+            closed(PanelIds.NETWORK, listW, min(400f, h * 0.5f), h * 0.12f, 8),
+            closed(PanelIds.FAVORITES, min(w - 32f, 260f), min(380f, h * 0.5f), h * 0.12f, 9),
+            PanelState(PanelIds.TERMINAL, centeredX(termW), termY, termW, termH, isOpen = true, zOrder = 10)
         ).map { clamp(it) }
     }
 
@@ -409,6 +452,11 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
             GestureAction.OPEN_MEDIA -> openPanel(PanelIds.MEDIA)
             GestureAction.OPEN_SCHEDULE -> openPanel(PanelIds.SCHEDULE)
             GestureAction.OPEN_HISTORY -> openPanel(PanelIds.HISTORY)
+            GestureAction.OPEN_CLOCK -> openPanel(PanelIds.CLOCK)
+            GestureAction.OPEN_CALENDAR -> openPanel(PanelIds.CALENDAR)
+            GestureAction.OPEN_STATUS -> openPanel(PanelIds.STATUS)
+            GestureAction.OPEN_NETWORK -> openPanel(PanelIds.NETWORK)
+            GestureAction.OPEN_FAVORITES -> openPanel(PanelIds.FAVORITES)
             GestureAction.NEW_MEMO -> newMemo()
             GestureAction.CLOSE_FOCUSED -> closeFocused()
             GestureAction.CLOSE_ALL -> closeAll()
@@ -421,6 +469,8 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     fun setBlurRadius(dp: Float) = viewModelScope.launch { settingsRepository.setBlurRadius(dp) }
     fun setSmoke(percent: Float) = viewModelScope.launch { settingsRepository.setSmoke(percent) }
     fun setScheduleDays(days: Int) = viewModelScope.launch { settingsRepository.setScheduleDays(days) }
+    fun setAppearance(a: Appearance) = viewModelScope.launch { settingsRepository.setAppearance(a) }
+    fun setMediaSettings(m: MediaSettings) = viewModelScope.launch { settingsRepository.setMediaSettings(m) }
 
     fun setGestureAction(type: GestureType, action: GestureAction) = viewModelScope.launch {
         settingsRepository.setGestures(settings.value.gestures + (type to action))
@@ -476,11 +526,71 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     fun mediaPrevious() = mediaRepository.previous()
     fun mediaSeek(positionMs: Long) = mediaRepository.seekTo(positionMs)
     fun openMediaPlayer() = mediaRepository.openPlayer()
+    fun mediaSkipTo(id: Long) = mediaRepository.skipToQueueItem(id)
+
+    // ---- EQ ----
+
+    fun eqSetEnabled(enabled: Boolean) = audioEffects.setEnabled(enabled)
+    fun eqSelectPreset(index: Int) = audioEffects.selectPreset(index)
+    fun eqSetBand(band: Int, level: Int) = audioEffects.setBandLevel(band, level)
+    fun eqReset() = audioEffects.reset()
+
+    // ---- お気に入り ----
+
+    /** お気に入りアプリ（アンインストール済みは除く） */
+    fun favoriteApps(): List<AppEntry> {
+        val byKey = apps.value.associateBy { it.key }
+        return _favoriteKeys.value.mapNotNull { byKey[it] }
+    }
+
+    private fun saveFavorites(keys: List<String>) {
+        _favoriteKeys.value = keys
+        viewModelScope.launch { favoritesRepository.save(keys) }
+    }
+
+    fun addFavorite(app: AppEntry) {
+        if (app.key !in _favoriteKeys.value) saveFavorites(_favoriteKeys.value + app.key)
+    }
+
+    fun removeFavorite(app: AppEntry) = saveFavorites(_favoriteKeys.value - app.key)
+
+    fun toggleFavorite(app: AppEntry) {
+        if (app.key in _favoriteKeys.value) removeFavorite(app) else addFavorite(app)
+    }
+
+    /** 並び替え（パネルに表示中のキーの順に保存。表示されていない＝未インストールのキーは末尾に残す） */
+    fun reorderFavorites(keys: List<String>) {
+        saveFavorites(keys + _favoriteKeys.value.filterNot { it in keys })
+    }
+
+    // ---- カメラ・ライト・ファイル ----
+
+    fun openCamera(): Boolean = startActivitySafely(Intent(MediaStore.INTENT_ACTION_STILL_IMAGE_CAMERA))
+
+    fun requestAllFilesAccess() {
+        if (!startActivitySafely(Permissions.allFilesIntent(app))) startActivitySafely(Permissions.allFilesListIntent())
+    }
+
+    fun requestUsageAccess() {
+        if (!startActivitySafely(Permissions.usageAccessIntent(app))) startActivitySafely(Permissions.usageAccessListIntent())
+    }
+
+    // ---- 稼働状況・通信 ----
+
+    suspend fun systemSnapshot(): SystemSnapshot = systemStatus.snapshot()
+    fun startNetwork() = networkMonitor.start()
+    fun stopNetwork() = networkMonitor.stop()
+
+    /** カレンダーパネル用：期間内の予定 */
+    suspend fun loadEvents(start: Long, end: Long): List<CalendarEvent> = calendarRepository.loadRange(start, end)
 
     // ---- 予定 ----
 
     fun reloadEvents() {
-        viewModelScope.launch { _events.value = calendarRepository.loadUpcoming(settings.value.scheduleDays) }
+        viewModelScope.launch {
+            _events.value = calendarRepository.loadUpcoming(settings.value.scheduleDays)
+            _eventsVersion.value++
+        }
     }
 
     /** カレンダーアプリで予定を開く */
@@ -496,6 +606,8 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         appRepository.close()
         mediaRepository.stop()
         calendarRepository.stopObserving()
+        networkMonitor.stop()
+        torch.close()
         super.onCleared()
     }
 }
