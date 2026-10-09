@@ -1,0 +1,67 @@
+# IcHomeLauncher の APK ビルド用ワークフロー
+# 配置場所：リポジトリの .github/workflows/build.yml
+name: Build APK
+
+on:
+  # main ブランチへの push でビルド
+  push:
+    branches: [ main ]
+  # GitHub の画面から手動実行も可能にする
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      # リポジトリのコードを取得
+      - name: ソースを取得
+        uses: actions/checkout@v4
+
+      # Gradle 実行用の JDK をセットアップ
+      # ※AGP のバージョンが JDK 21 を要求する場合は '21' に変更する
+      - name: JDK をセットアップ
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      # Gradle のキャッシュ等をセットアップ（ビルド高速化）
+      # ※Android SDK は ubuntu-latest に最初から入っているので追加セットアップ不要
+      - name: Gradle をセットアップ
+        uses: gradle/actions/setup-gradle@v4
+
+      # GitHub Secrets に保存した署名鍵（Base64）をファイルに戻す
+      - name: 署名鍵を復元
+        env:
+          KEYSTORE_BASE64: ${{ secrets.IHL_KEYSTORE_BASE64 }}
+        run: |
+          if [ -z "$KEYSTORE_BASE64" ]; then
+            echo "::error::Secrets に IHL_KEYSTORE_BASE64 が登録されていません"
+            exit 1
+          fi
+          echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/ihl-release.jks"
+          echo "IHL_KEYSTORE_PATH=$RUNNER_TEMP/ihl-release.jks" >> "$GITHUB_ENV"
+
+      # 署名付きの release APK をビルド
+      - name: APK をビルド
+        env:
+          IHL_KEYSTORE_PASSWORD: ${{ secrets.IHL_KEYSTORE_PASSWORD }}
+          IHL_KEY_ALIAS: ${{ secrets.IHL_KEY_ALIAS }}
+          IHL_KEY_PASSWORD: ${{ secrets.IHL_KEY_PASSWORD }}
+        run: |
+          chmod +x ./gradlew
+          ./gradlew assembleRelease --stacktrace
+
+      # できた APK をダウンロードできるようにアップロード
+      - name: APK をアップロード
+        uses: actions/upload-artifact@v4
+        with:
+          name: IcHomeLauncher-apk
+          path: app/build/outputs/apk/release/*.apk
+          if-no-files-found: error
+
+      # 復元した署名鍵を削除（念のため）
+      - name: 署名鍵を削除
+        if: always()
+        run: rm -f "$RUNNER_TEMP/ihl-release.jks"
