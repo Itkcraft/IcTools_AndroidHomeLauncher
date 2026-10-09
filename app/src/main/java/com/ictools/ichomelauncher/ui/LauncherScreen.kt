@@ -24,6 +24,16 @@ import com.ictools.ichomelauncher.ui.drawer.DrawerPanel
 import com.ictools.ichomelauncher.ui.panel.FloatingPanel
 import com.ictools.ichomelauncher.ui.settings.SettingsActions
 import com.ictools.ichomelauncher.ui.settings.SettingsPanel
+import com.ictools.ichomelauncher.ui.settings.PermissionStatus
+import com.ictools.ichomelauncher.ui.media.MediaActions
+import com.ictools.ichomelauncher.ui.media.MediaPanel
+import com.ictools.ichomelauncher.ui.schedule.SchedulePanel
+import com.ictools.ichomelauncher.ui.history.HistoryActions
+import com.ictools.ichomelauncher.ui.history.HistoryData
+import com.ictools.ichomelauncher.ui.history.HistoryPanel
+import com.ictools.ichomelauncher.ui.memo.MemoPanel
+import com.ictools.ichomelauncher.data.Permissions
+import androidx.compose.ui.platform.LocalContext
 import com.ictools.ichomelauncher.ui.terminal.TerminalPanel
 import kotlin.math.max
 import kotlin.math.min
@@ -39,6 +49,20 @@ fun LauncherScreen(vm: LauncherViewModel, onOpenHomeSettings: () -> Unit) {
     val panels by vm.panels.collectAsStateWithLifecycle()
     val apps by vm.apps.collectAsStateWithLifecycle()
     val blurAvailable by vm.blurAvailable.collectAsStateWithLifecycle()
+    val memos by vm.memos.collectAsStateWithLifecycle()
+    val media by vm.media.collectAsStateWithLifecycle()
+    val events by vm.events.collectAsStateWithLifecycle()
+    val launchHistory by vm.launchHistory.collectAsStateWithLifecycle()
+    val notifications by vm.notifications.collectAsStateWithLifecycle()
+    val notificationAccess by vm.notificationAccess.collectAsStateWithLifecycle()
+    val calendarAccess by vm.calendarAccess.collectAsStateWithLifecycle()
+    val context = LocalContext.current
+    val requestNotificationAccess = {
+        if (!vm.startActivitySafely(Permissions.notificationAccessIntent(context))) {
+            vm.startActivitySafely(Permissions.notificationAccessListIntent())
+        }
+    }
+    val openAppInfo = { vm.startActivitySafely(Permissions.appDetailsIntent(context)); Unit }
     val focusManager = LocalFocusManager.current
     val density = LocalDensity.current
 
@@ -74,8 +98,11 @@ fun LauncherScreen(vm: LauncherViewModel, onOpenHomeSettings: () -> Unit) {
                 } else {
                     panel.yDp
                 }
+                // メモのタイトルバーには1行目を出す
+                val memo = if (PanelIds.isMemo(panel.id)) memos[PanelIds.memoIdOf(panel.id)] else null
+                val title = if (memo != null && memo.headline.isNotEmpty()) "Memo: ${memo.headline}" else PanelIds.title(panel.id)
                 FloatingPanel(
-                    title = PanelIds.title(panel.id),
+                    title = title,
                     xDp = panel.xDp,
                     yDp = displayY,
                     widthDp = panel.widthDp,
@@ -98,6 +125,7 @@ fun LauncherScreen(vm: LauncherViewModel, onOpenHomeSettings: () -> Unit) {
                         PanelIds.SETTINGS -> SettingsPanel(
                             settings = settings,
                             blurAvailable = blurAvailable,
+                            permissions = PermissionStatus(notificationAccess, calendarAccess),
                             actions = SettingsActions(
                                 setBlurEnabled = { vm.setBlurEnabled(it) },
                                 setBlurRadius = { vm.setBlurRadius(it) },
@@ -105,9 +133,61 @@ fun LauncherScreen(vm: LauncherViewModel, onOpenHomeSettings: () -> Unit) {
                                 setGestureAction = { type, action -> vm.setGestureAction(type, action) },
                                 resetGestures = { vm.resetGestures() },
                                 resetLayout = vm::resetLayout,
-                                openHomeSettings = onOpenHomeSettings
+                                openHomeSettings = onOpenHomeSettings,
+                                setScheduleDays = { vm.setScheduleDays(it) },
+                                requestNotificationAccess = requestNotificationAccess,
+                                openAppInfo = openAppInfo
                             )
                         )
+                        PanelIds.MEDIA -> MediaPanel(
+                            media = media,
+                            hasAccess = notificationAccess,
+                            actions = MediaActions(
+                                playPause = vm::mediaPlayPause,
+                                next = { vm.mediaNext() },
+                                previous = { vm.mediaPrevious() },
+                                seek = { vm.mediaSeek(it) },
+                                openPlayer = { vm.openMediaPlayer() },
+                                requestAccess = requestNotificationAccess,
+                                openAppInfo = openAppInfo
+                            )
+                        )
+                        PanelIds.SCHEDULE -> SchedulePanel(
+                            events = events,
+                            days = settings.scheduleDays,
+                            hasAccess = calendarAccess,
+                            onPermissionResult = vm::refreshPermissions,
+                            onOpenAppInfo = openAppInfo,
+                            onOpenEvent = vm::openEvent,
+                            onDayChanged = vm::reloadEvents
+                        )
+                        PanelIds.HISTORY -> HistoryPanel(
+                            data = HistoryData(
+                                launches = launchHistory,
+                                apps = apps,
+                                commands = vm.terminal.history.toList(),
+                                notifications = notifications,
+                                hasNotificationAccess = notificationAccess
+                            ),
+                            actions = HistoryActions(
+                                launchApp = { vm.launchApp(it) },
+                                loadIcon = vm::loadIcon,
+                                runCommand = vm::runCommand,
+                                openNotification = vm::openNotification,
+                                clearLaunches = vm::clearLaunchHistory,
+                                clearCommands = vm::clearCommandHistory,
+                                clearNotifications = vm::clearNotifications,
+                                requestNotificationAccess = requestNotificationAccess,
+                                openAppInfo = openAppInfo
+                            )
+                        )
+                        else -> if (memo != null) {
+                            MemoPanel(
+                                memo = memo,
+                                onEdit = { vm.editMemo(memo.id, it) },
+                                onDelete = { vm.deleteMemo(memo.id) }
+                            )
+                        }
                     }
                 }
             }
