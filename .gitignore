@@ -1,0 +1,14 @@
+# Gradle / Android Studio
+.gradle/
+build/
+/captures
+.idea/
+*.iml
+.kotlin/
+.externalNativeBuild
+.cxx
+
+# ローカル環境・署名鍵（コミット禁止）
+local.properties
+*.jks
+*.keystore

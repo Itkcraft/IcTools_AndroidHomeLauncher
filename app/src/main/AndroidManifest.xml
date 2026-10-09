@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!-- ランチャーに表示されるアプリ（MAIN + LAUNCHER）を取得可能にする -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
+        </intent>
+    </queries>
+
+    <application
+        android:allowBackup="true"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher"
+        android:label="IHL"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.IcHomeLauncher">
+
+        <!-- ホームアプリとして認識させる設定 -->
+        <!-- ※仕様書にある android:resumeWhilePaused は公開 SDK に存在しない非公開属性で
+             リソースリンクがエラーになるため指定していない（システム製ランチャー専用） -->
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:label="IHL"
+            android:launchMode="singleTask"
+            android:stateNotNeeded="true"
+            android:clearTaskOnLaunch="true"
+            android:excludeFromRecents="true"
+            android:screenOrientation="portrait"
+            android:windowSoftInputMode="adjustNothing"
+            android:theme="@style/Theme.IcHomeLauncher"
+            tools:ignore="DiscouragedApi,LockedOrientationActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <!-- ホームアプリ候補として表示される -->
+                <category android:name="android.intent.category.HOME" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>
