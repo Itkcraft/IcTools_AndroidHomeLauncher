@@ -5,6 +5,7 @@ import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.floatPreferencesKey
+import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import com.ictools.ichomelauncher.gesture.GestureAction
 import com.ictools.ichomelauncher.gesture.GestureType
@@ -22,8 +23,16 @@ data class BackgroundSettings(
 /** 設定全体 */
 data class LauncherSettings(
     val background: BackgroundSettings = BackgroundSettings(),
-    val gestures: Map<GestureType, GestureAction> = GestureType.defaultMapping()
-)
+    val gestures: Map<GestureType, GestureAction> = GestureType.defaultMapping(),
+    val scheduleDays: Int = DEFAULT_SCHEDULE_DAYS
+) {
+    companion object {
+        const val DEFAULT_SCHEDULE_DAYS = 7
+
+        /** スケジュールの表示日数の選択肢 */
+        val SCHEDULE_DAY_OPTIONS = listOf(1, 3, 7, 14)
+    }
+}
 
 /** 背景・ジェスチャー設定の保存と読み込み */
 class SettingsRepository(private val context: Context) {
@@ -33,6 +42,7 @@ class SettingsRepository(private val context: Context) {
     private val keyBlurRadius = floatPreferencesKey("blur_radius_dp")
     private val keySmoke = floatPreferencesKey("smoke_percent")
     private val keyGestures = stringPreferencesKey("gesture_map")
+    private val keyScheduleDays = intPreferencesKey("schedule_days")
 
     /** 設定の変更を監視する Flow */
     val settings: Flow<LauncherSettings> = context.ihlDataStore.data.map { it.toSettings() }
@@ -44,7 +54,9 @@ class SettingsRepository(private val context: Context) {
             blurRadiusDp = (this[keyBlurRadius] ?: defaults.blurRadiusDp).coerceIn(0f, 100f),
             smokePercent = (this[keySmoke] ?: defaults.smokePercent).coerceIn(0f, 90f)
         )
-        return LauncherSettings(background, decodeGestures(this[keyGestures]))
+        val days = this[keyScheduleDays]?.takeIf { it in LauncherSettings.SCHEDULE_DAY_OPTIONS }
+            ?: LauncherSettings.DEFAULT_SCHEDULE_DAYS
+        return LauncherSettings(background, decodeGestures(this[keyGestures]), days)
     }
 
     /** 保存された「ジェスチャーID → アクションID」の JSON を復元する。未知のIDは無視し、欠けた分は初期値で補う */
@@ -70,6 +82,10 @@ class SettingsRepository(private val context: Context) {
 
     suspend fun setSmoke(percent: Float) {
         context.ihlDataStore.edit { it[keySmoke] = percent.coerceIn(0f, 90f) }
+    }
+
+    suspend fun setScheduleDays(days: Int) {
+        context.ihlDataStore.edit { it[keyScheduleDays] = days }
     }
 
     suspend fun setGestures(map: Map<GestureType, GestureAction>) {

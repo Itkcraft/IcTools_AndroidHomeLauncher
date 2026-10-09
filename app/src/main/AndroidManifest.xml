@@ -2,6 +2,9 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
+    <!-- スケジュールパネル：端末のカレンダーの予定を読む（読み取りのみ） -->
+    <uses-permission android:name="android.permission.READ_CALENDAR" />
+
     <!-- ランチャーに表示されるアプリ（MAIN + LAUNCHER）を取得可能にする -->
     <queries>
         <intent>
@@ -40,5 +43,16 @@
                 <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
         </activity>
+
+        <!-- 通知リスナー：通知履歴の記録と、再生中メディアの取得に使う（「通知へのアクセス」の許可が必要） -->
+        <service
+            android:name=".service.IhlNotificationListener"
+            android:exported="true"
+            android:label="IHL"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+        </service>
     </application>
 </manifest>

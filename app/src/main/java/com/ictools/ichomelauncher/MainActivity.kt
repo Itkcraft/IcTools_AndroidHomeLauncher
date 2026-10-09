@@ -59,6 +59,12 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun onResume() {
+        super.onResume()
+        // 設定画面で権限を変えて戻ってきた場合に反映する
+        viewModel.refreshPermissions()
+    }
+
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
         // 登録時に現在の状態も1回通知される

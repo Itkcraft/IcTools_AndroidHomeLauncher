@@ -6,6 +6,7 @@ import android.content.pm.LauncherActivityInfo
 import android.content.pm.LauncherApps
 import android.os.Handler
 import android.os.Looper
+import android.os.UserManager
 import android.os.UserHandle
 import android.util.LruCache
 import androidx.compose.ui.graphics.ImageBitmap
@@ -24,10 +25,11 @@ import java.text.Collator
 data class AppEntry(
     val label: String,
     val component: ComponentName,
-    val user: UserHandle
+    val user: UserHandle,
+    val userSerial: Long
 ) {
-    /** 一覧の key 用の一意な文字列 */
-    val key: String get() = "${component.flattenToString()}#${user.hashCode()}"
+    /** 一覧の key・履歴の保存に使う一意な文字列（再起動後も変わらない） */
+    val key: String get() = "${component.flattenToString()}#$userSerial"
 }
 
 /** インストール済みアプリ（MAIN + LAUNCHER）の取得・起動・変更監視 */
@@ -36,6 +38,7 @@ class AppRepository(context: Context, private val scope: CoroutineScope) {
     private val appContext = context.applicationContext
     private val launcherApps = appContext.getSystemService(LauncherApps::class.java)
     private val ownPackage = appContext.packageName
+    private val userManager = appContext.getSystemService(UserManager::class.java)
 
     private val _apps = MutableStateFlow<List<AppEntry>>(emptyList())
 
@@ -77,10 +80,11 @@ class AppRepository(context: Context, private val scope: CoroutineScope) {
                 .filter { it.componentName.packageName != ownPackage }
 
             val collator = Collator.getInstance()
-            val entries = infos.map { AppEntry(it.label.toString(), it.componentName, it.user) }
-                .sortedWith { a, b -> collator.compare(a.label, b.label) }
-            activityInfos = infos.associateBy { AppEntry(it.label.toString(), it.componentName, it.user).key }
-            _apps.value = entries
+            val pairs = infos.map { info ->
+                AppEntry(info.label.toString(), info.componentName, info.user, userManager.getSerialNumberForUser(info.user)) to info
+            }
+            activityInfos = pairs.associate { (entry, info) -> entry.key to info }
+            _apps.value = pairs.map { it.first }.sortedWith { a, b -> collator.compare(a.label, b.label) }
         }
     }
 

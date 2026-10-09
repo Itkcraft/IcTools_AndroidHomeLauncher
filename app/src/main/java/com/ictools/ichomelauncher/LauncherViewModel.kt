@@ -1,27 +1,47 @@
 package com.ictools.ichomelauncher
 
 import android.app.Application
+import android.content.Intent
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.ictools.ichomelauncher.data.AppEntry
 import com.ictools.ichomelauncher.data.AppRepository
+import com.ictools.ichomelauncher.data.CalendarEvent
+import com.ictools.ichomelauncher.data.CalendarRepository
+import com.ictools.ichomelauncher.data.HistoryRepository
+import com.ictools.ichomelauncher.data.LaunchRecord
 import com.ictools.ichomelauncher.data.LauncherSettings
+import com.ictools.ichomelauncher.data.MediaInfo
+import com.ictools.ichomelauncher.data.MediaRepository
+import com.ictools.ichomelauncher.data.Memo
+import com.ictools.ichomelauncher.data.MemoRepository
+import com.ictools.ichomelauncher.data.NotificationHistory
+import com.ictools.ichomelauncher.data.NotificationRecord
 import com.ictools.ichomelauncher.data.PanelIds
 import com.ictools.ichomelauncher.data.PanelRepository
 import com.ictools.ichomelauncher.data.PanelState
+import com.ictools.ichomelauncher.data.PendingIntents
+import com.ictools.ichomelauncher.data.Permissions
 import com.ictools.ichomelauncher.data.SettingsRepository
 import com.ictools.ichomelauncher.gesture.GestureAction
 import com.ictools.ichomelauncher.gesture.GestureType
+import com.ictools.ichomelauncher.ui.terminal.TerminalHost
 import com.ictools.ichomelauncher.ui.terminal.TerminalSession
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import java.util.UUID
 import kotlin.math.max
 import kotlin.math.min
 
@@ -33,23 +53,41 @@ object PanelMetrics {
     const val MIN_VISIBLE = 48f        // タイトルバーが画面内に残る最小幅
 }
 
-/** ランチャー全体の状態（パネル・設定・アプリ一覧・ターミナル）を管理する ViewModel */
+/** ランチャー全体の状態（パネル・設定・アプリ・メモ・履歴・メディア・予定・ターミナル）を管理する ViewModel */
 class LauncherViewModel(application: Application) : AndroidViewModel(application) {
 
+    private val app = application
     private val panelRepository = PanelRepository(application)
     private val settingsRepository = SettingsRepository(application)
     private val appRepository = AppRepository(application, viewModelScope)
+    private val memoRepository = MemoRepository(application)
+    private val historyRepository = HistoryRepository(application)
+    private val mediaRepository = MediaRepository(application)
+    private val calendarRepository = CalendarRepository(application)
+    private val notificationHistory = NotificationHistory.get(application)
 
     /** インストール済みアプリ一覧 */
     val apps: StateFlow<List<AppEntry>> = appRepository.apps
 
-    /** 背景・ジェスチャー設定 */
+    /** 背景・ジェスチャー等の設定 */
     val settings: StateFlow<LauncherSettings> = settingsRepository.settings
         .stateIn(viewModelScope, SharingStarted.Eagerly, LauncherSettings())
 
     /** 端末／現在の状態でウィンドウぼかしが使えるか（Activity から更新される） */
     private val _blurAvailable = MutableStateFlow(true)
     val blurAvailable: StateFlow<Boolean> = _blurAvailable.asStateFlow()
+
+    // ---- 権限 ----
+
+    private val _notificationAccess = MutableStateFlow(Permissions.hasNotificationAccess(application))
+
+    /** 「通知へのアクセス」が許可されているか（メディア・通知履歴に必要） */
+    val notificationAccess: StateFlow<Boolean> = _notificationAccess.asStateFlow()
+
+    private val _calendarAccess = MutableStateFlow(Permissions.hasCalendar(application))
+
+    /** カレンダーの読み取りが許可されているか（スケジュールに必要） */
+    val calendarAccess: StateFlow<Boolean> = _calendarAccess.asStateFlow()
 
     // ---- パネル ----
 
@@ -64,18 +102,80 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     private var loaded = false
     private val saveMutex = Mutex()
 
+    // ---- メモ ----
+
+    private val _memos = MutableStateFlow<Map<String, Memo>>(emptyMap())
+
+    /** メモID → メモ */
+    val memos: StateFlow<Map<String, Memo>> = _memos.asStateFlow()
+    private var memoSaveJob: Job? = null
+
+    // ---- 履歴 ----
+
+    private val _launchHistory = MutableStateFlow<List<LaunchRecord>>(emptyList())
+
+    /** アプリ起動履歴（新しい順） */
+    val launchHistory: StateFlow<List<LaunchRecord>> = _launchHistory.asStateFlow()
+
+    /** 通知履歴（新しい順） */
+    val notifications: StateFlow<List<NotificationRecord>> = notificationHistory.records
+
+    // ---- メディア・予定 ----
+
+    /** 再生中のメディア */
+    val media: StateFlow<MediaInfo?> = mediaRepository.media
+
+    private val _events = MutableStateFlow<List<CalendarEvent>>(emptyList())
+
+    /** 表示期間内の予定 */
+    val events: StateFlow<List<CalendarEvent>> = _events.asStateFlow()
+
     // ---- ターミナル ----
 
     /** ターミナルのセッション（ログ・履歴・コマンド実行） */
-    val terminal = TerminalSession(
-        apps = { appRepository.apps.value },
-        launchApp = { appRepository.launch(it) },
-        openPanel = { openPanel(it) },
-        closePanel = { closePanel(it) }
-    )
+    val terminal = TerminalSession(object : TerminalHost {
+        override fun apps() = appRepository.apps.value
+        override fun launchApp(app: AppEntry) = this@LauncherViewModel.launchApp(app)
+        override fun openPanel(id: String) = this@LauncherViewModel.openPanel(id)
+        override fun closePanel(id: String) = this@LauncherViewModel.closePanel(id)
+        override fun memos() = _memos.value.values.toList()
+        override fun newMemo(text: String) = this@LauncherViewModel.newMemo(text)
+        override fun openMemo(memo: Memo) = openPanel(PanelIds.memoPanelId(memo.id))
+        override fun deleteMemo(memo: Memo) = this@LauncherViewModel.deleteMemo(memo.id)
+        override fun onHistoryChanged(history: List<String>) {
+            viewModelScope.launch { historyRepository.saveCommands(history) }
+        }
+    })
+
+    init {
+        viewModelScope.launch {
+            terminal.restoreHistory(historyRepository.loadCommands())
+            _launchHistory.value = historyRepository.loadLaunches()
+        }
+        mediaRepository.start()
+        // 表示日数が変わったら予定を読み直す
+        viewModelScope.launch {
+            settings.map { it.scheduleDays }.distinctUntilChanged().drop(1).collect { reloadEvents() }
+        }
+        reloadEvents()
+        calendarRepository.observe { reloadEvents() }
+    }
 
     fun setBlurAvailable(available: Boolean) {
         _blurAvailable.value = available
+    }
+
+    /** 権限の状態を確認し直す（設定画面から戻ってきたとき等に呼ぶ） */
+    fun refreshPermissions() {
+        val notification = Permissions.hasNotificationAccess(app)
+        _notificationAccess.value = notification
+        if (notification) mediaRepository.start() else mediaRepository.stop()
+
+        val calendar = Permissions.hasCalendar(app)
+        val calendarChanged = calendar != _calendarAccess.value
+        _calendarAccess.value = calendar
+        if (calendar) calendarRepository.observe { reloadEvents() } else calendarRepository.stopObserving()
+        if (calendarChanged || calendar) reloadEvents()
     }
 
     /** 画面サイズ（dp）の通知。初回はここで保存データを読み込み、以降は画面内に収まるよう補正する */
@@ -87,6 +187,7 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         if (!loadStarted) {
             loadStarted = true
             viewModelScope.launch {
+                _memos.value = memoRepository.load().associateBy { it.id }
                 val saved = panelRepository.load()
                 val base = if (saved == null) defaultLayout() else mergeWithDefaults(saved)
                 _panels.value = normalizeZ(base.map { clamp(it) })
@@ -99,33 +200,35 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    /** 初回起動時の配置：ターミナルのみ画面中央下寄りに開く */
+    /** 単一パネルの初期配置。初回起動時はターミナルのみ画面中央下寄りに開く */
     private fun defaultLayout(): List<PanelState> {
         val w = screenWidth
         val h = screenHeight
         fun centeredX(width: Float) = (w - width) / 2f
+        fun closed(id: String, width: Float, height: Float, y: Float, z: Int) =
+            PanelState(id, centeredX(width), y, width, height, isOpen = false, zOrder = z)
 
         val termW = min(w - 32f, 360f)
         val termH = min(280f, h * 0.4f)
         val termY = min(h * 0.55f, h - termH - 64f)
-
-        val drawerW = min(w - 32f, 320f)
-        val drawerH = min(460f, h * 0.6f)
-
-        val settingsW = min(w - 32f, 340f)
-        val settingsH = min(540f, h * 0.65f)
+        val listW = min(w - 32f, 320f)
 
         return listOf(
-            PanelState(PanelIds.DRAWER, centeredX(drawerW), h * 0.12f, drawerW, drawerH, isOpen = false, zOrder = 0),
-            PanelState(PanelIds.SETTINGS, centeredX(settingsW), h * 0.08f, settingsW, settingsH, isOpen = false, zOrder = 1),
-            PanelState(PanelIds.TERMINAL, centeredX(termW), termY, termW, termH, isOpen = true, zOrder = 2)
+            closed(PanelIds.DRAWER, listW, min(460f, h * 0.6f), h * 0.12f, 0),
+            closed(PanelIds.SETTINGS, min(w - 32f, 340f), min(540f, h * 0.65f), h * 0.08f, 1),
+            closed(PanelIds.MEDIA, listW, 170f, h * 0.12f, 2),
+            closed(PanelIds.SCHEDULE, listW, min(420f, h * 0.5f), h * 0.1f, 3),
+            closed(PanelIds.HISTORY, listW, min(440f, h * 0.55f), h * 0.1f, 4),
+            PanelState(PanelIds.TERMINAL, centeredX(termW), termY, termW, termH, isOpen = true, zOrder = 5)
         ).map { clamp(it) }
     }
 
-    /** 保存データに欠けているパネルを初期配置で補い、未知のIDは捨てる */
+    /** 保存データに欠けている単一パネルを初期配置で補い、未知のIDやメモが消えたパネルは捨てる */
     private fun mergeWithDefaults(saved: List<PanelState>): List<PanelState> {
         val defaults = defaultLayout()
-        val known = saved.filter { it.id in PanelIds.ALL }.distinctBy { it.id }
+        val known = saved.filter {
+            it.id in PanelIds.SINGLETONS || (PanelIds.isMemo(it.id) && _memos.value.containsKey(PanelIds.memoIdOf(it.id)))
+        }.distinctBy { it.id }
         val missing = defaults.filter { d -> known.none { it.id == d.id } }
             .map { it.copy(isOpen = false, zOrder = Int.MIN_VALUE) }
         return known + missing
@@ -164,7 +267,7 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
 
     /** パネルを開く（開いていれば最前面に出すだけ） */
     fun openPanel(id: String) {
-        if (!loaded) return
+        if (!loaded || _panels.value.none { it.id == id }) return
         update(id) { clamp(it.copy(isOpen = true)) }
         bringToFront(id)
         persist()
@@ -180,6 +283,14 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     /** パネルを閉じる。フォーカスは次に新しくアクティブ化されたパネルへ自動的に移る */
     fun closePanel(id: String) {
         if (!loaded) return
+        // 空のメモは閉じたら削除する
+        if (PanelIds.isMemo(id)) {
+            val memo = _memos.value[PanelIds.memoIdOf(id)]
+            if (memo == null || memo.text.isBlank()) {
+                deleteMemo(PanelIds.memoIdOf(id))
+                return
+            }
+        }
         update(id) { it.copy(isOpen = false) }
         persist()
     }
@@ -190,8 +301,7 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
 
     fun closeAll() {
         if (!loaded) return
-        _panels.value = _panels.value.map { it.copy(isOpen = false) }
-        persist()
+        _panels.value.filter { it.isOpen }.forEach { closePanel(it.id) }
     }
 
     /** ドラッグ中の移動（保存はドラッグ終了時） */
@@ -207,10 +317,13 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     /** ドラッグ終了時に保存 */
     fun onDragEnd() = persist()
 
-    /** パネル配置を初回起動時の状態に戻す */
+    /** パネル配置を初回起動時の状態に戻す（メモは閉じた状態で残す） */
     fun resetLayout() {
         if (!loaded) return
-        _panels.value = normalizeZ(defaultLayout())
+        val memoPanels = _panels.value.filter { PanelIds.isMemo(it.id) }.mapIndexed { i, p ->
+            memoPanelAt(p.id, i).copy(isOpen = false, zOrder = -1)
+        }
+        _panels.value = normalizeZ(defaultLayout() + memoPanels)
         persist()
     }
 
@@ -220,6 +333,64 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
             // 連続保存の順序を保つため直列化し、常に最新の状態を書き込む
             saveMutex.withLock { panelRepository.save(_panels.value) }
         }
+    }
+
+    // ---- メモ ----
+
+    /** メモパネルの初期配置（少しずつずらして重ねる） */
+    private fun memoPanelAt(panelId: String, index: Int): PanelState {
+        val width = min(screenWidth - 32f, 240f)
+        val offset = (index % 6) * 18f
+        return clamp(
+            PanelState(
+                id = panelId,
+                xDp = (screenWidth - width) / 2f - 40f + offset,
+                yDp = screenHeight * 0.18f + offset,
+                widthDp = width,
+                heightDp = 200f,
+                isOpen = true,
+                zOrder = -1
+            )
+        )
+    }
+
+    /** 新しいメモを作ってパネルを開く */
+    fun newMemo(text: String = "") {
+        if (!loaded) return
+        val now = System.currentTimeMillis()
+        val memo = Memo(UUID.randomUUID().toString().take(8), text, now, now)
+        _memos.value = _memos.value + (memo.id to memo)
+        val panelId = PanelIds.memoPanelId(memo.id)
+        val count = _panels.value.count { PanelIds.isMemo(it.id) }
+        _panels.value = _panels.value + memoPanelAt(panelId, count)
+        bringToFront(panelId)
+        saveMemosNow()
+        persist()
+    }
+
+    /** メモ本文の編集（保存は少し待ってまとめて行う） */
+    fun editMemo(memoId: String, text: String) {
+        val memo = _memos.value[memoId] ?: return
+        if (memo.text == text) return
+        _memos.value = _memos.value + (memoId to memo.copy(text = text, updatedAt = System.currentTimeMillis()))
+        memoSaveJob?.cancel()
+        memoSaveJob = viewModelScope.launch {
+            delay(500)
+            memoRepository.save(_memos.value.values.toList())
+        }
+    }
+
+    /** メモを削除し、パネルも取り除く */
+    fun deleteMemo(memoId: String) {
+        _memos.value = _memos.value - memoId
+        _panels.value = normalizeZ(_panels.value.filterNot { it.id == PanelIds.memoPanelId(memoId) })
+        saveMemosNow()
+        persist()
+    }
+
+    private fun saveMemosNow() {
+        memoSaveJob?.cancel()
+        memoSaveJob = viewModelScope.launch { memoRepository.save(_memos.value.values.toList()) }
     }
 
     // ---- ジェスチャー ----
@@ -235,6 +406,10 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
             GestureAction.OPEN_TERMINAL -> openPanel(PanelIds.TERMINAL)
             GestureAction.OPEN_DRAWER -> openPanel(PanelIds.DRAWER)
             GestureAction.OPEN_SETTINGS -> openPanel(PanelIds.SETTINGS)
+            GestureAction.OPEN_MEDIA -> openPanel(PanelIds.MEDIA)
+            GestureAction.OPEN_SCHEDULE -> openPanel(PanelIds.SCHEDULE)
+            GestureAction.OPEN_HISTORY -> openPanel(PanelIds.HISTORY)
+            GestureAction.NEW_MEMO -> newMemo()
             GestureAction.CLOSE_FOCUSED -> closeFocused()
             GestureAction.CLOSE_ALL -> closeAll()
         }
@@ -245,6 +420,7 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     fun setBlurEnabled(enabled: Boolean) = viewModelScope.launch { settingsRepository.setBlurEnabled(enabled) }
     fun setBlurRadius(dp: Float) = viewModelScope.launch { settingsRepository.setBlurRadius(dp) }
     fun setSmoke(percent: Float) = viewModelScope.launch { settingsRepository.setSmoke(percent) }
+    fun setScheduleDays(days: Int) = viewModelScope.launch { settingsRepository.setScheduleDays(days) }
 
     fun setGestureAction(type: GestureType, action: GestureAction) = viewModelScope.launch {
         settingsRepository.setGestures(settings.value.gestures + (type to action))
@@ -254,14 +430,72 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         settingsRepository.setGestures(GestureType.defaultMapping())
     }
 
-    // ---- アプリ ----
+    // ---- アプリ・履歴 ----
 
-    fun launchApp(app: AppEntry): Boolean = appRepository.launch(app)
+    /** アプリを起動し、起動履歴に記録する */
+    fun launchApp(app: AppEntry): Boolean {
+        val ok = appRepository.launch(app)
+        if (ok) {
+            val record = LaunchRecord(app.key, app.label, System.currentTimeMillis())
+            // 同じアプリは最新の1件だけ残す
+            _launchHistory.value = (listOf(record) + _launchHistory.value.filterNot { it.appKey == app.key })
+                .take(HistoryRepository.MAX_LAUNCHES)
+            viewModelScope.launch { historyRepository.saveLaunches(_launchHistory.value) }
+        }
+        return ok
+    }
+
+    fun clearLaunchHistory() {
+        _launchHistory.value = emptyList()
+        viewModelScope.launch { historyRepository.saveLaunches(emptyList()) }
+    }
+
+    /** ターミナルを開いてコマンドを実行する（履歴パネルから） */
+    fun runCommand(command: String) {
+        openPanel(PanelIds.TERMINAL)
+        terminal.execute(command)
+    }
+
+    fun clearCommandHistory() = terminal.clearHistory()
+
+    /** 通知を開く（元の通知の操作が使えなければアプリを起動） */
+    fun openNotification(record: NotificationRecord) {
+        val pi = notificationHistory.contentIntentOf(record)
+        if (pi != null && runCatching { PendingIntents.send(app, pi) }.isSuccess) return
+        apps.value.firstOrNull { it.component.packageName == record.packageName }?.let { launchApp(it) }
+    }
+
+    fun clearNotifications() = notificationHistory.clear()
 
     suspend fun loadIcon(app: AppEntry, sizePx: Int): ImageBitmap? = appRepository.loadIcon(app, sizePx)
 
+    // ---- メディア ----
+
+    fun mediaPlayPause() = mediaRepository.playPause()
+    fun mediaNext() = mediaRepository.next()
+    fun mediaPrevious() = mediaRepository.previous()
+    fun mediaSeek(positionMs: Long) = mediaRepository.seekTo(positionMs)
+    fun openMediaPlayer() = mediaRepository.openPlayer()
+
+    // ---- 予定 ----
+
+    fun reloadEvents() {
+        viewModelScope.launch { _events.value = calendarRepository.loadUpcoming(settings.value.scheduleDays) }
+    }
+
+    /** カレンダーアプリで予定を開く */
+    fun openEvent(event: CalendarEvent) {
+        runCatching { app.startActivity(calendarRepository.viewIntent(event)) }
+    }
+
+    /** 設定画面などを開く（Activity 外からなので NEW_TASK を付ける） */
+    fun startActivitySafely(intent: Intent): Boolean =
+        runCatching { app.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }.isSuccess
+
     override fun onCleared() {
         appRepository.close()
+        mediaRepository.stop()
+        calendarRepository.stopObserving()
         super.onCleared()
     }
 }

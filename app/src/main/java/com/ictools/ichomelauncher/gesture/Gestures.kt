@@ -32,6 +32,10 @@ enum class GestureAction(val id: String, val label: String) {
     OPEN_TERMINAL("open_terminal", "open terminal"),
     OPEN_DRAWER("open_drawer", "open drawer"),
     OPEN_SETTINGS("open_settings", "open settings"),
+    OPEN_MEDIA("open_media", "open media"),
+    OPEN_SCHEDULE("open_schedule", "open schedule"),
+    OPEN_HISTORY("open_history", "open history"),
+    NEW_MEMO("new_memo", "new memo"),
     CLOSE_FOCUSED("close_focused", "close focused"),
     CLOSE_ALL("close_all", "close all");
 
