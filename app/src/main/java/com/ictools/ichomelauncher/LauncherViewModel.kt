@@ -272,7 +272,7 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         return listOf(
             closed(PanelIds.DRAWER, listW, min(460f, h * 0.6f), h * 0.12f, 0),
             closed(PanelIds.SETTINGS, min(w - 32f, 340f), min(540f, h * 0.65f), h * 0.08f, 1),
-            closed(PanelIds.MEDIA, listW, 170f, h * 0.12f, 2),
+            closed(PanelIds.MEDIA, listW, min(320f, h * 0.45f), h * 0.12f, 2),
             closed(PanelIds.SCHEDULE, listW, min(420f, h * 0.5f), h * 0.1f, 3),
             closed(PanelIds.HISTORY, listW, min(440f, h * 0.55f), h * 0.1f, 4),
             closed(PanelIds.CLOCK, min(w - 32f, 260f), 150f, h * 0.08f, 5),

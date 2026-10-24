@@ -103,21 +103,24 @@ fun FloatingPanel(
                 .padding(start = 10.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(
-                text = title,
-                modifier = Modifier.weight(1f, fill = false),
-                color = if (focused) IhlColors.Accent else IhlColors.TextDim,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-            // 固定中の印
-            val lockTag = when {
-                positionLocked && sizeLocked -> " [fixed]"
-                positionLocked -> " [pos]"
-                sizeLocked -> " [size]"
-                else -> ""
+            // タイトルと固定中の印は残りの幅をすべて使う（ボタンを右端に寄せるため）
+            Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = title,
+                    modifier = Modifier.weight(1f, fill = false),
+                    color = if (focused) IhlColors.Accent else IhlColors.TextDim,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                // 固定中の印
+                val lockTag = when {
+                    positionLocked && sizeLocked -> " [fixed]"
+                    positionLocked -> " [pos]"
+                    sizeLocked -> " [size]"
+                    else -> ""
+                }
+                if (lockTag.isNotEmpty()) Text(lockTag, color = IhlColors.TextDim, fontSize = 10.sp, maxLines = 1)
             }
-            Text(lockTag, color = IhlColors.TextDim, fontSize = 10.sp, maxLines = 1, modifier = Modifier.weight(1f))
             // パネルメニュー（位置・サイズの固定）
             var menu by remember { mutableStateOf(false) }
             Box(

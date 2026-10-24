@@ -12,6 +12,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -106,62 +107,87 @@ fun MediaPanel(state: MediaPanelState, actions: MediaActions) {
     }
     val media = state.media
 
-    Column(Modifier.fillMaxSize().padding(start = 10.dp, top = 8.dp, end = 10.dp, bottom = 4.dp)) {
-        // ---- 曲情報（タップで再生アプリを開く） ----
-        if (media == null) {
-            Text("no media yet", color = IhlColors.TextDim)
-        } else {
-            TrackInfo(media, actions.openPlayer)
+    // パネルが低いときは Queue / EQ を出さない（はみ出して途中で切れるため）
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        // 波形（許可済みなら 40dp、未許可なら説明 120dp）の分も足して判定する
+        val visualizerHeight = when {
+            !state.settings.visualizerEnabled -> 0.dp
+            state.hasRecordAudio -> 46.dp
+            else -> 126.dp
         }
-        // ---- 音楽波形 ----
-        if (state.settings.visualizerEnabled) {
-            Spacer(Modifier.height(6.dp))
-            VisualizerView(
-                mode = state.settings.visualizerMode,
-                playing = media?.isPlaying == true,
-                hasPermission = state.hasRecordAudio,
-                onPermissionResult = actions.onPermissionResult,
-                openAppInfo = actions.openAppInfo
-            )
-        }
-        // ---- 再生バー ----
-        Spacer(Modifier.height(6.dp))
-        if (media != null) ProgressBar(media, actions.seek)
-        // ---- 操作ボタン（常にこの位置） ----
-        Spacer(Modifier.height(6.dp))
-        Row(
-            Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceEvenly,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            ControlButton("|<", actions.previous)
-            ControlButton(if (media?.isPlaying == true) "||" else ">", actions.playPause)
-            ControlButton(">|", actions.next)
-        }
-        // ---- キュー／EQ ----
-        Spacer(Modifier.height(6.dp))
-        val tabs = if (state.settings.showQueue) MediaTab.entries else listOf(MediaTab.EQ)
-        var tab by rememberSaveable { mutableStateOf(MediaTab.QUEUE) }
-        val current = if (tab in tabs) tab else tabs.first()
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            tabs.forEach { t ->
-                val selected = t == current
-                Text(
-                    if (selected) "[${t.label}]" else " ${t.label} ",
-                    color = if (selected) IhlColors.Accent else IhlColors.TextDim,
-                    modifier = Modifier.clickable { tab = t }.padding(end = 4.dp, top = 2.dp, bottom = 2.dp)
+        val showTabs = maxHeight >= TABS_MIN_PANEL_HEIGHT + visualizerHeight
+        Column(Modifier.fillMaxSize().padding(start = 10.dp, top = 8.dp, end = 10.dp, bottom = 4.dp)) {
+            // ---- 曲情報（タップで再生アプリを開く） ----
+            if (media == null) {
+                Text("no media yet", color = IhlColors.TextDim)
+            } else {
+                TrackInfo(media, actions.openPlayer)
+            }
+            // ---- 音楽波形 ----
+            if (state.settings.visualizerEnabled) {
+                Spacer(Modifier.height(6.dp))
+                VisualizerView(
+                    mode = state.settings.visualizerMode,
+                    playing = media?.isPlaying == true,
+                    hasPermission = state.hasRecordAudio,
+                    onPermissionResult = actions.onPermissionResult,
+                    openAppInfo = actions.openAppInfo
                 )
             }
-        }
-        Box(Modifier.fillMaxWidth().height(1.dp).background(IhlColors.Line))
-        Box(Modifier.weight(1f).fillMaxWidth()) {
-            when (current) {
-                MediaTab.QUEUE -> QueueView(media, actions.skipToQueueItem)
-                MediaTab.EQ -> EqView(media, state.eq, actions)
+            // ---- 再生バー ----
+            Spacer(Modifier.height(6.dp))
+            if (media != null) ProgressBar(media, actions.seek)
+            // ---- 操作ボタン（常にこの位置） ----
+            Spacer(Modifier.height(6.dp))
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceEvenly,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                ControlButton("|<", actions.previous)
+                ControlButton(if (media?.isPlaying == true) "||" else ">", actions.playPause)
+                ControlButton(">|", actions.next)
+            }
+            // ---- キュー／EQ ----
+            if (!showTabs) {
+                Spacer(Modifier.weight(1f))
+                Text(
+                    "パネルを縦に広げると Queue / EQ を表示します",
+                    color = IhlColors.TextDim,
+                    fontSize = 9.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(end = 16.dp)
+                )
+                return@Column
+            }
+            Spacer(Modifier.height(6.dp))
+            val tabs = if (state.settings.showQueue) MediaTab.entries else listOf(MediaTab.EQ)
+            var tab by rememberSaveable { mutableStateOf(MediaTab.QUEUE) }
+            val current = if (tab in tabs) tab else tabs.first()
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                tabs.forEach { t ->
+                    val selected = t == current
+                    Text(
+                        if (selected) "[${t.label}]" else " ${t.label} ",
+                        color = if (selected) IhlColors.Accent else IhlColors.TextDim,
+                        modifier = Modifier.clickable { tab = t }.padding(end = 4.dp, top = 2.dp, bottom = 2.dp)
+                    )
+                }
+            }
+            Box(Modifier.fillMaxWidth().height(1.dp).background(IhlColors.Line))
+            Box(Modifier.weight(1f).fillMaxWidth()) {
+                when (current) {
+                    MediaTab.QUEUE -> QueueView(media, actions.skipToQueueItem)
+                    MediaTab.EQ -> EqView(media, state.eq, actions)
+                }
             }
         }
     }
 }
+
+/** Queue / EQ タブを表示するのに必要なパネル本体の高さ（波形を除く。これより低いと曲情報と操作ボタンだけ） */
+private val TABS_MIN_PANEL_HEIGHT = 250.dp
 
 @Composable
 private fun TrackInfo(media: MediaInfo, onOpen: () -> Unit) {

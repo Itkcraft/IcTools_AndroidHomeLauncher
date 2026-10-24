@@ -4,7 +4,7 @@
 
 - ホーム画面上の表示名：**IHL**
 - パッケージ名：`com.ictools.ichomelauncher`
-- バージョン：**v0.4.0**（ベータ版）
+- バージョン：**v0.4.1**（ベータ版）
 - 作者：IcTools
 - 対応 OS：Android 12（API 31）以降／縦画面固定
 
