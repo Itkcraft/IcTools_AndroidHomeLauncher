@@ -141,15 +141,16 @@ fun FloatingPanel(
                     )
                 }
             }
-            // 閉じるボタン（右上はカットされているので少し内側に置く）
+            // 閉じるボタン（右上はカットされているので少し内側に置く）。固定中は押せない
+            val closable = !positionLocked && !sizeLocked
             Box(
                 Modifier
                     .size(PanelMetrics.TITLE_BAR_HEIGHT.dp)
                     .padding(end = 6.dp)
-                    .clickable(onClick = onClose),
+                    .clickable(enabled = closable, onClick = onClose),
                 contentAlignment = Alignment.Center
             ) {
-                Text("✕", color = IhlColors.TextDim)
+                Text("✕", color = if (closable) IhlColors.TextDim else IhlColors.Line)
             }
         }
         // タイトルバー下の区切り線

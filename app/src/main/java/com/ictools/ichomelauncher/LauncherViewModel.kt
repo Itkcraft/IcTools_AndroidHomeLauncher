@@ -343,24 +343,33 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     }
 
     /** パネルを閉じる。フォーカスは次に新しくアクティブ化されたパネルへ自動的に移る */
-    fun closePanel(id: String) {
-        if (!loaded) return
+    fun closePanel(id: String): Boolean {
+        if (!loaded) return false
+        // 位置またはサイズを固定しているパネルは閉じない
+        if (isLocked(id)) return false
         // 空のメモは閉じたら削除する
         if (PanelIds.isMemo(id)) {
             val memo = _memos.value[PanelIds.memoIdOf(id)]
             if (memo == null || memo.text.isBlank()) {
                 deleteMemo(PanelIds.memoIdOf(id))
-                return
+                return true
             }
         }
         update(id) { it.copy(isOpen = false) }
         persist()
+        return true
     }
 
+    /** 位置またはサイズを固定しているか（固定中は閉じられない） */
+    fun isLocked(id: String): Boolean =
+        _panels.value.firstOrNull { it.id == id }?.let { it.positionLocked || it.sizeLocked } == true
+
+    /** フォーカス中のパネルを閉じる（固定中なら何もしない） */
     fun closeFocused() {
         focusedId()?.let { closePanel(it) }
     }
 
+    /** 固定していないパネルをすべて閉じる */
     fun closeAll() {
         if (!loaded) return
         _panels.value.filter { it.isOpen }.forEach { closePanel(it.id) }

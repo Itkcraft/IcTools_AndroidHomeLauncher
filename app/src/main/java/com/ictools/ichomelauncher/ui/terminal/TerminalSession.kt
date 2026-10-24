@@ -20,7 +20,8 @@ interface TerminalHost {
     fun apps(): List<AppEntry>
     fun launchApp(app: AppEntry): Boolean
     fun openPanel(id: String)
-    fun closePanel(id: String)
+    /** パネルを閉じる。固定中で閉じられなければ false */
+    fun closePanel(id: String): Boolean
     fun memos(): List<Memo>
     fun newMemo(text: String)
     fun openMemo(memo: Memo)
@@ -199,7 +200,10 @@ class TerminalSession(
                 "ls" -> { fileCommand { print(*files.ls(null, false).toTypedArray()) }; return }
                 "cd" -> { fileCommand { files.cd(null); print(files.display(files.cwd)) }; return }
                 "clear" -> { lines.clear(); return }
-                "close", "exit" -> { host.closePanel(PanelIds.TERMINAL); return }
+                "close", "exit" -> {
+                    if (!host.closePanel(PanelIds.TERMINAL)) print("terminal is locked. unlock it from the ⋮ menu to close")
+                    return
+                }
                 "version" -> { print("IcHomeLauncher v${BuildConfig.VERSION_NAME}"); return }
                 "open" -> { print("usage: open <file|app> | open -a <app>"); return }
             }
