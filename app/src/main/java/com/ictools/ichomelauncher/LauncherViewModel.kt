@@ -47,6 +47,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.map
@@ -57,6 +58,9 @@ import kotlinx.coroutines.sync.withLock
 import java.util.UUID
 import kotlin.math.max
 import kotlin.math.min
+
+/** インストールから何日間「新しいアプリ」として表示するか */
+const val NEW_APP_DAYS = 7
 
 /** パネル配置の制約値（dp） */
 object PanelMetrics {
@@ -162,6 +166,17 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     /** お気に入りアプリのキー（並び順） */
     val favoriteKeys: StateFlow<List<String>> = _favoriteKeys.asStateFlow()
 
+    /** 新しいアプリ（インストールから一定期間内で、まだ IHL から起動していないもの。新しい順） */
+    val newApps: StateFlow<List<AppEntry>> by lazy {
+        combine(appRepository.apps, _launchHistory) { list, history ->
+            val launchedAt = history.associate { it.appKey to it.time }
+            val since = System.currentTimeMillis() - NEW_APP_DAYS * 24L * 60 * 60 * 1000
+            list.filter { a ->
+                a.installTime >= since && (launchedAt[a.key] ?: 0L) < a.installTime
+            }.sortedByDescending { it.installTime }
+        }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+    }
+
     // ---- ターミナル ----
 
     /** ターミナルのセッション（ログ・履歴・コマンド実行） */
@@ -174,6 +189,9 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         override fun setTorch(on: Boolean) = torch.set(on)
         override fun startActivity(intent: Intent) = startActivitySafely(intent)
         override fun requestAllFilesAccess() = this@LauncherViewModel.requestAllFilesAccess()
+        override fun uninstall(app: AppEntry) = this@LauncherViewModel.uninstall(app)
+        override fun openAppInfo(app: AppEntry) = this@LauncherViewModel.openAppInfo(app)
+        override fun newApps() = this@LauncherViewModel.newApps.value
         override fun apps() = appRepository.apps.value
         override fun launchApp(app: AppEntry) = this@LauncherViewModel.launchApp(app)
         override fun openPanel(id: String) = this@LauncherViewModel.openPanel(id)
@@ -261,8 +279,9 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
             closed(PanelIds.CALENDAR, listW, min(440f, h * 0.55f), h * 0.1f, 6),
             closed(PanelIds.STATUS, listW, min(460f, h * 0.6f), h * 0.1f, 7),
             closed(PanelIds.NETWORK, listW, min(400f, h * 0.5f), h * 0.12f, 8),
-            closed(PanelIds.FAVORITES, min(w - 32f, 260f), min(380f, h * 0.5f), h * 0.12f, 9),
-            PanelState(PanelIds.TERMINAL, centeredX(termW), termY, termW, termH, isOpen = true, zOrder = 10)
+            closed(PanelIds.FAVORITES, min(w - 32f, 320f), min(380f, h * 0.5f), h * 0.12f, 9),
+            closed(PanelIds.PAD, min(w - 32f, 300f), 220f, h * 0.55f, 10),
+            PanelState(PanelIds.TERMINAL, centeredX(termW), termY, termW, termH, isOpen = true, zOrder = 11)
         ).map { clamp(it) }
     }
 
@@ -349,12 +368,24 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
 
     /** ドラッグ中の移動（保存はドラッグ終了時） */
     fun movePanelBy(id: String, dxDp: Float, dyDp: Float) {
-        update(id) { clamp(it.copy(xDp = it.xDp + dxDp, yDp = it.yDp + dyDp)) }
+        update(id) { if (it.positionLocked) it else clamp(it.copy(xDp = it.xDp + dxDp, yDp = it.yDp + dyDp)) }
     }
 
     /** ドラッグ中のリサイズ（保存はドラッグ終了時） */
     fun resizePanelBy(id: String, dwDp: Float, dhDp: Float) {
-        update(id) { clamp(it.copy(widthDp = it.widthDp + dwDp, heightDp = it.heightDp + dhDp)) }
+        update(id) { if (it.sizeLocked) it else clamp(it.copy(widthDp = it.widthDp + dwDp, heightDp = it.heightDp + dhDp)) }
+    }
+
+    /** 位置の固定を切り替える */
+    fun toggleLockPosition(id: String) {
+        update(id) { it.copy(positionLocked = !it.positionLocked) }
+        persist()
+    }
+
+    /** サイズの固定を切り替える */
+    fun toggleLockSize(id: String) {
+        update(id) { it.copy(sizeLocked = !it.sizeLocked) }
+        persist()
     }
 
     /** ドラッグ終了時に保存 */
@@ -443,6 +474,13 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         perform(settings.value.gestures[type] ?: GestureAction.NONE)
     }
 
+    /** タッチパッドのジェスチャー：タッチパッド用の割り当てを実行し、実行したアクションを返す（表示用） */
+    fun onPadGesture(type: GestureType): GestureAction {
+        val action = settings.value.padGestures[type] ?: GestureAction.NONE
+        perform(action)
+        return action
+    }
+
     private fun perform(action: GestureAction) {
         when (action) {
             GestureAction.NONE -> Unit
@@ -457,6 +495,11 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
             GestureAction.OPEN_STATUS -> openPanel(PanelIds.STATUS)
             GestureAction.OPEN_NETWORK -> openPanel(PanelIds.NETWORK)
             GestureAction.OPEN_FAVORITES -> openPanel(PanelIds.FAVORITES)
+            GestureAction.OPEN_PAD -> openPanel(PanelIds.PAD)
+            GestureAction.MEDIA_PLAY_PAUSE -> mediaRepository.playPause()
+            GestureAction.MEDIA_NEXT -> mediaRepository.next()
+            GestureAction.MEDIA_PREVIOUS -> mediaRepository.previous()
+            GestureAction.LIGHT_TOGGLE -> { torch.set(!torch.isOn.value) }
             GestureAction.NEW_MEMO -> newMemo()
             GestureAction.CLOSE_FOCUSED -> closeFocused()
             GestureAction.CLOSE_ALL -> closeAll()
@@ -478,6 +521,18 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
 
     fun resetGestures() = viewModelScope.launch {
         settingsRepository.setGestures(GestureType.defaultMapping())
+    }
+
+    fun setPadGestureAction(type: GestureType, action: GestureAction) = viewModelScope.launch {
+        settingsRepository.setPadGestures(settings.value.padGestures + (type to action))
+    }
+
+    fun resetPadGestures() = viewModelScope.launch {
+        settingsRepository.setPadGestures(GestureType.defaultPadMapping())
+    }
+
+    fun toggleFavoritesGrid() = viewModelScope.launch {
+        settingsRepository.setFavoritesGrid(!settings.value.favoritesGrid)
     }
 
     // ---- アプリ・履歴 ----
@@ -562,6 +617,13 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     fun reorderFavorites(keys: List<String>) {
         saveFavorites(keys + _favoriteKeys.value.filterNot { it in keys })
     }
+
+    // ---- アンインストール・アプリ情報 ----
+
+    /** アンインストール画面を開く（システムアプリは false。呼び出し側でアプリ情報を案内する） */
+    fun uninstall(app: AppEntry): Boolean = appRepository.uninstall(app)
+
+    fun openAppInfo(app: AppEntry): Boolean = appRepository.openAppInfo(app)
 
     // ---- カメラ・ライト・ファイル ----
 

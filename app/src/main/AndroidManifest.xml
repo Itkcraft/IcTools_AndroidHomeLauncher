@@ -22,6 +22,8 @@
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-permission android:name="android.permission.READ_PHONE_STATE" />
+    <!-- アプリのアンインストール画面を開く（実際の削除は OS の確認ダイアログで行う） -->
+    <uses-permission android:name="android.permission.REQUEST_DELETE_PACKAGES" />
 
     <!-- カメラ・ライトは必須ではない（無い端末でもインストール可能） -->
     <uses-feature android:name="android.hardware.camera" android:required="false" />

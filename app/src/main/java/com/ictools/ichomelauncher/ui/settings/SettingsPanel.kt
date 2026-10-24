@@ -56,6 +56,8 @@ class SettingsActions(
     val setSmoke: (Float) -> Unit,
     val setGestureAction: (GestureType, GestureAction) -> Unit,
     val resetGestures: () -> Unit,
+    val setPadGestureAction: (GestureType, GestureAction) -> Unit,
+    val resetPadGestures: () -> Unit,
     val resetLayout: () -> Unit,
     val openHomeSettings: () -> Unit,
     val setScheduleDays: (Int) -> Unit,
@@ -131,11 +133,21 @@ fun SettingsPanel(settings: LauncherSettings, blurAvailable: Boolean, permission
 
         // ---- ジェスチャー ----
         SectionHeader("ジェスチャー")
-        GestureType.entries.forEach { type ->
+        Text("背景（ピンチは画面全体）", color = IhlColors.TextDim, fontSize = 11.sp)
+        GestureType.entries.filter { it.onBackground }.forEach { type ->
             GestureRow(type, settings.gestures[type] ?: GestureAction.NONE) { actions.setGestureAction(type, it) }
         }
         Spacer(Modifier.height(6.dp))
         WireButton("初期値に戻す", onClick = actions.resetGestures)
+
+        // ---- タッチパッド ----
+        SectionHeader("タッチパッド")
+        Text("Pad パネル内での操作（ターミナルの pad で開く）", color = IhlColors.TextDim, fontSize = 11.sp)
+        GestureType.entries.filter { it.onPad }.forEach { type ->
+            GestureRow(type, settings.padGestures[type] ?: GestureAction.NONE) { actions.setPadGestureAction(type, it) }
+        }
+        Spacer(Modifier.height(6.dp))
+        WireButton("初期値に戻す", onClick = actions.resetPadGestures)
 
         // ---- パネル ----
         SectionHeader("パネル")

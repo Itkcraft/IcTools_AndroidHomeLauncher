@@ -19,12 +19,13 @@ object PanelIds {
     const val STATUS = "status"
     const val NETWORK = "network"
     const val FAVORITES = "favorites"
+    const val PAD = "pad"
 
     /** メモパネルのID接頭辞 */
     const val MEMO_PREFIX = "memo:"
 
     /** 1 つずつしか開かないパネル */
-    val SINGLETONS = listOf(TERMINAL, DRAWER, SETTINGS, MEDIA, SCHEDULE, HISTORY, CLOCK, CALENDAR, STATUS, NETWORK, FAVORITES)
+    val SINGLETONS = listOf(TERMINAL, DRAWER, SETTINGS, MEDIA, SCHEDULE, HISTORY, CLOCK, CALENDAR, STATUS, NETWORK, FAVORITES, PAD)
 
     fun isMemo(id: String): Boolean = id.startsWith(MEMO_PREFIX)
     fun memoPanelId(memoId: String): String = MEMO_PREFIX + memoId
@@ -43,6 +44,7 @@ object PanelIds {
         STATUS -> "Status"
         NETWORK -> "Network"
         FAVORITES -> "Favorites"
+        PAD -> "Pad"
         else -> if (isMemo(id)) "Memo" else id
     }
 }
@@ -50,11 +52,13 @@ object PanelIds {
 // パネル1枚分の保存データ
 @Serializable
 data class PanelState(
-    val id: String,        // パネルID（terminal / drawer / settings / media / schedule / history / clock / calendar / status / network / favorites / memo:<ID>）
+    val id: String,        // パネルID（terminal / drawer / settings / media / schedule / history / clock / calendar / status / network / favorites / pad / memo:<ID>）
     val xDp: Float,        // 左上X座標（dp）
     val yDp: Float,        // 左上Y座標（dp）
     val widthDp: Float,    // 幅（dp）
     val heightDp: Float,   // 高さ（dp）
     val isOpen: Boolean,   // 開いているか
-    val zOrder: Int        // 重なり順（大きいほど前面）
+    val zOrder: Int,       // 重なり順（大きいほど前面）
+    val positionLocked: Boolean = false, // 位置を固定（タイトルバーで移動できない）
+    val sizeLocked: Boolean = false      // サイズを固定（リサイズハンドルを出さない）
 )

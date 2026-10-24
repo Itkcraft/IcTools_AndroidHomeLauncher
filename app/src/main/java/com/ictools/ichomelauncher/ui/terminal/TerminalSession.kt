@@ -11,6 +11,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 /** ターミナルからランチャー本体を操作するための窓口 */
 interface TerminalHost {
@@ -31,6 +34,9 @@ interface TerminalHost {
     fun setTorch(on: Boolean): String?
     fun startActivity(intent: android.content.Intent): Boolean
     fun requestAllFilesAccess()
+    fun uninstall(app: AppEntry): Boolean
+    fun openAppInfo(app: AppEntry): Boolean
+    fun newApps(): List<AppEntry>
 }
 
 /** ログ1行分。[action] があればタップで実行できる */
@@ -54,7 +60,8 @@ class TerminalSession(
         /** 補完候補になるコマンド名 */
         val COMMANDS = listOf(
             "help", "apps", "drawer", "open", "settings", "media", "schedule", "cal", "history",
-            "memo", "memos", "clock", "calendar", "status", "network", "net", "favorites", "favs", "fav",
+            "memo", "memos", "clock", "calendar", "status", "network", "net", "favorites", "favs", "fav", "pad",
+            "uninstall", "info", "new",
             "camera", "light", "ls", "cd", "pwd", "cp", "mv", "mkdir", "rm",
             "clear", "close", "exit", "version"
         )
@@ -75,9 +82,12 @@ class TerminalSession(
             "  fav                list favorites",
             "  fav add <app>      add an app to favorites",
             "  fav rm <app>       remove an app from favorites",
+            "  uninstall <app>    uninstall an app (asks the system)",
+            "  info <app>         open the app info screen",
+            "  new                list newly installed apps",
             "panels:",
             "  settings | media | history | clock | calendar",
-            "  status | network (net) | favorites (favs)",
+            "  status | network (net) | favorites (favs) | pad",
             "  schedule (cal)",
             "memos:",
             "  memo [text]        create a new memo",
@@ -176,6 +186,10 @@ class TerminalSession(
                 "status" -> { host.openPanel(PanelIds.STATUS); return }
                 "network", "net" -> { host.openPanel(PanelIds.NETWORK); return }
                 "favorites", "favs" -> { host.openPanel(PanelIds.FAVORITES); return }
+                "pad" -> { host.openPanel(PanelIds.PAD); return }
+                "new" -> { listNewApps(); return }
+                "uninstall" -> { print("usage: uninstall <app>"); return }
+                "info" -> { print("usage: info <app>"); return }
                 "fav" -> { listFavorites(); return }
                 "memo" -> { host.newMemo(""); return }
                 "memos" -> { listMemos(); return }
@@ -199,6 +213,21 @@ class TerminalSession(
             }
             "memos" -> memosCommand(argument)
             "fav" -> favCommand(args)
+            "uninstall" -> {
+                val app = findApp(argument, host.apps()) ?: return
+                if (app.isSystem) {
+                    print("uninstall: ${app.label} is a system app and cannot be uninstalled")
+                    printAction("  [ アプリ情報を開く（無効化はここから） ]") { host.openAppInfo(app) }
+                } else if (host.uninstall(app)) {
+                    print("uninstall: confirm in the system dialog (${app.label})")
+                } else {
+                    print("uninstall: cannot open the uninstaller")
+                }
+            }
+            "info" -> {
+                val app = findApp(argument, host.apps()) ?: return
+                if (!host.openAppInfo(app)) print("info: cannot open app info")
+            }
             "light" -> when (argument.lowercase()) {
                 "on" -> toggleLight(true)
                 "off" -> toggleLight(false)
@@ -347,6 +376,19 @@ class TerminalSession(
         }
     }
 
+    // ---- 新しいアプリ ----
+
+    private fun listNewApps() {
+        val apps = host.newApps()
+        if (apps.isEmpty()) {
+            print("no new apps")
+            return
+        }
+        print("new apps (${apps.size}):")
+        val f = SimpleDateFormat("MM/dd HH:mm", Locale.getDefault())
+        apps.forEach { a -> printAction("  ${f.format(Date(a.installTime))}  ${a.label}") { host.launchApp(a) } }
+    }
+
     // ---- メモ ----
 
     /** メモ一覧を番号付きで表示（番号は新しく更新された順） */
@@ -434,6 +476,7 @@ class TerminalSession(
                     if (name.isEmpty()) null else appCompletion(name, pool)?.let { head + sub + " " + it }
                 }
             }
+            "uninstall", "info" -> rest.takeIf { it.isNotEmpty() }?.let { appCompletion(it, host.apps()) }?.let { head + it }
             "light" -> listOf("on", "off").firstOrNull { it.startsWith(rest, ignoreCase = true) && it.length > rest.length }?.let { head + it }
             "memos" -> if ("rm".startsWith(rest, ignoreCase = true) && rest.length < 2) head + "rm" else null
             "open" -> when {

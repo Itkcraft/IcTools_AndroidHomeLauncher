@@ -26,7 +26,9 @@ import com.ictools.ichomelauncher.gesture.backgroundGestures
 import com.ictools.ichomelauncher.gesture.pinchGestures
 import com.ictools.ichomelauncher.ui.calendar.CalendarPanel
 import com.ictools.ichomelauncher.ui.clock.ClockPanel
+import com.ictools.ichomelauncher.ui.drawer.DrawerActions
 import com.ictools.ichomelauncher.ui.drawer.DrawerPanel
+import com.ictools.ichomelauncher.ui.pad.PadPanel
 import com.ictools.ichomelauncher.ui.favorites.FavoritesPanel
 import com.ictools.ichomelauncher.ui.history.HistoryActions
 import com.ictools.ichomelauncher.ui.history.HistoryData
@@ -101,6 +103,10 @@ fun LauncherScreen(vm: LauncherViewModel, onOpenHomeSettings: () -> Unit) {
                     widthDp = panel.widthDp,
                     heightDp = panel.heightDp,
                     focused = panel.id == focusedId,
+                    positionLocked = panel.positionLocked,
+                    sizeLocked = panel.sizeLocked,
+                    onToggleLockPosition = { vm.toggleLockPosition(panel.id) },
+                    onToggleLockSize = { vm.toggleLockSize(panel.id) },
                     onFocus = { vm.focusPanel(panel.id) },
                     onClose = { vm.closePanel(panel.id) },
                     onMove = { dx, dy -> vm.movePanelBy(panel.id, dx, dy) },
@@ -136,12 +142,18 @@ private fun PanelContent(id: String, memo: Memo?, vm: LauncherViewModel, onOpenH
         PanelIds.DRAWER -> {
             val apps by vm.apps.collectAsStateWithLifecycle()
             val favorites by vm.favoriteKeys.collectAsStateWithLifecycle()
+            val newApps by vm.newApps.collectAsStateWithLifecycle()
             DrawerPanel(
                 apps = apps,
-                loadIcon = vm::loadIcon,
-                onLaunch = { vm.launchApp(it) },
+                newApps = newApps,
                 favoriteKeys = favorites.toSet(),
-                onToggleFavorite = vm::toggleFavorite
+                loadIcon = vm::loadIcon,
+                actions = DrawerActions(
+                    launch = { vm.launchApp(it) },
+                    toggleFavorite = vm::toggleFavorite,
+                    uninstall = { vm.uninstall(it) },
+                    openAppInfo = { vm.openAppInfo(it) }
+                )
             )
         }
 
@@ -158,6 +170,8 @@ private fun PanelContent(id: String, memo: Memo?, vm: LauncherViewModel, onOpenH
                     setSmoke = { vm.setSmoke(it) },
                     setGestureAction = { type, action -> vm.setGestureAction(type, action) },
                     resetGestures = { vm.resetGestures() },
+                    setPadGestureAction = { type, action -> vm.setPadGestureAction(type, action) },
+                    resetPadGestures = { vm.resetPadGestures() },
                     resetLayout = vm::resetLayout,
                     openHomeSettings = onOpenHomeSettings,
                     setScheduleDays = { vm.setScheduleDays(it) },
@@ -243,6 +257,8 @@ private fun PanelContent(id: String, memo: Memo?, vm: LauncherViewModel, onOpenH
 
         PanelIds.CLOCK -> ClockPanel()
 
+        PanelIds.PAD -> PadPanel(onGesture = vm::onPadGesture)
+
         PanelIds.CALENDAR -> {
             val version by vm.eventsVersion.collectAsStateWithLifecycle()
             CalendarPanel(
@@ -283,8 +299,11 @@ private fun PanelContent(id: String, memo: Memo?, vm: LauncherViewModel, onOpenH
                 val byKey = apps.associateBy { it.key }
                 keys.mapNotNull { byKey[it] }
             }
+            val settings by vm.settings.collectAsStateWithLifecycle()
             FavoritesPanel(
                 favorites = favorites,
+                grid = settings.favoritesGrid,
+                onToggleGrid = { vm.toggleFavoritesGrid() },
                 loadIcon = vm::loadIcon,
                 onLaunch = { vm.launchApp(it) },
                 onReorder = vm::reorderFavorites

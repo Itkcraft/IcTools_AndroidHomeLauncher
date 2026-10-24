@@ -4,7 +4,7 @@
 
 - ホーム画面上の表示名：**IHL**
 - パッケージ名：`com.ictools.ichomelauncher`
-- バージョン：**v0.3.0**（ベータ版）
+- バージョン：**v0.4.0**（ベータ版）
 - 作者：IcTools
 - 対応 OS：Android 12（API 31）以降／縦画面固定
 
@@ -13,9 +13,10 @@
 ## 機能
 
 - OS の壁紙をそのまま表示し、ウィンドウ背後のぼかし（端末が対応している場合）とスモーク（暗さ）を重ねる
-- フローティングパネル（Terminal / Apps / Settings / Media / Schedule / History / Memo / Clock / Calendar / Status / Network / Favorites）
+- フローティングパネル（Terminal / Apps / Settings / Media / Schedule / History / Memo / Clock / Calendar / Status / Network / Favorites / Pad）
   - タイトルバーのドラッグで移動、右下の三角ハンドルでリサイズ（最小 160×120dp）
   - タッチしたパネルが最前面になる
+  - タイトルバーの `⋮` から位置・サイズを固定できる
   - 位置・サイズ・開閉・重なり順を保存し、再起動後も復元
 - 背景ジェスチャー（スワイプ・ダブルタップ・長押し）と画面全体のピンチにアクションを割り当て可能
 - ターミナルからコマンドやアプリ名でアプリを起動
@@ -27,7 +28,9 @@
 - 時計パネル／カレンダーパネル（月表示）
 - 稼働状況パネル：RAM・バッテリー・発熱・ストレージ・稼働時間・最近使ったアプリ
 - 通信パネル：Wi-Fi／モバイルの接続状態・電波強度・リンク速度・SSID
-- お気に入りパネル：よく使うアプリを並び替えて置いておける
+- お気に入りパネル：よく使うアプリをグリッド／リストで表示、長押しドラッグで並び替え
+- タッチパッドパネル：パネル内のスワイプ・タップに好きなアクションを割り当てられる操作スペース
+- ドロワー：新しくインストールしたアプリを先頭に表示、長押しメニューからアプリ情報・アンインストール
 - ターミナルの入力補完（グレーのゴーストテキスト、→ ボタンか Tab で確定）とファイル操作
 - 見た目のカスタマイズ（ワイヤー色・パネル背景・パネルの形）
 
@@ -54,6 +57,10 @@
 | `camera` | カメラアプリを起動 |
 | `light` / `light on` / `light off` | ライトの切り替え／点灯／消灯 |
 | `fav` / `fav add <アプリ名>` / `fav rm <アプリ名>` | お気に入りの一覧／登録／解除 |
+| `pad` | タッチパッドパネルを開く |
+| `uninstall <アプリ名>` | アンインストール（OS の確認ダイアログが出ます） |
+| `info <アプリ名>` | アプリ情報を開く |
+| `new` | 新しくインストールされたアプリの一覧 |
 | `pwd` | 現在のディレクトリ |
 | `ls [-a] [path]` | ファイル一覧 |
 | `cd [path]` | ディレクトリ移動（`~` は内部ストレージ直下） |
@@ -79,9 +86,10 @@
 | `pinch_in` | 画面全体 | `none` |
 | `pinch_out` | 画面全体 | `close_focused` |
 
-選べるアクション：`none` / `open_terminal` / `open_drawer` / `open_settings` / `open_media` / `open_schedule` / `open_history` / `open_clock` / `open_calendar` / `open_status` / `open_network` / `open_favorites` / `new_memo` / `close_focused` / `close_all`
+選べるアクション：`none` / `open_terminal` / `open_drawer` / `open_settings` / `open_media` / `open_schedule` / `open_history` / `open_clock` / `open_calendar` / `open_status` / `open_network` / `open_favorites` / `open_pad` / `media_play_pause` / `media_next` / `media_previous` / `light_toggle` / `new_memo` / `close_focused` / `close_all`
 
 - 画面端のシステムジェスチャー領域（ホーム・戻る）で始まったスワイプは無視します
+- Pad パネルでは、背景とは別に tap / swipe（上下左右）/ double_tap / long_press の割り当てを設定できます（設定パネルの「タッチパッド」）
 - 割り当てを変えて設定を開けなくなっても、ターミナルの `settings` コマンドから必ず開けます
 
 ## 権限

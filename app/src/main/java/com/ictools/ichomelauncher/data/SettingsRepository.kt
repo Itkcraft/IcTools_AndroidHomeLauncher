@@ -65,6 +65,8 @@ data class MediaSettings(
 data class LauncherSettings(
     val background: BackgroundSettings = BackgroundSettings(),
     val gestures: Map<GestureType, GestureAction> = GestureType.defaultMapping(),
+    val padGestures: Map<GestureType, GestureAction> = GestureType.defaultPadMapping(),
+    val favoritesGrid: Boolean = true,
     val scheduleDays: Int = DEFAULT_SCHEDULE_DAYS,
     val appearance: Appearance = Appearance(),
     val media: MediaSettings = MediaSettings()
@@ -85,6 +87,8 @@ class SettingsRepository(private val context: Context) {
     private val keyBlurRadius = floatPreferencesKey("blur_radius_dp")
     private val keySmoke = floatPreferencesKey("smoke_percent")
     private val keyGestures = stringPreferencesKey("gesture_map")
+    private val keyPadGestures = stringPreferencesKey("pad_gesture_map")
+    private val keyFavoritesGrid = booleanPreferencesKey("favorites_grid")
     private val keyScheduleDays = intPreferencesKey("schedule_days")
     private val keyWireColor = intPreferencesKey("wire_color")
     private val keyPanelColor = intPreferencesKey("panel_color")
@@ -119,16 +123,24 @@ class SettingsRepository(private val context: Context) {
             visualizerEnabled = this[keyVisualizer] ?: true,
             visualizerMode = VisualizerMode.fromId(this[keyVisualizerMode])
         )
-        return LauncherSettings(background, decodeGestures(this[keyGestures]), days, appearance, media)
+        return LauncherSettings(
+            background = background,
+            gestures = decodeGestures(this[keyGestures], GestureType.defaultMapping()),
+            padGestures = decodeGestures(this[keyPadGestures], GestureType.defaultPadMapping()),
+            favoritesGrid = this[keyFavoritesGrid] ?: true,
+            scheduleDays = days,
+            appearance = appearance,
+            media = media
+        )
     }
 
     /** 保存された「ジェスチャーID → アクションID」の JSON を復元する。未知のIDは無視し、欠けた分は初期値で補う */
-    private fun decodeGestures(raw: String?): Map<GestureType, GestureAction> {
-        val result = GestureType.defaultMapping().toMutableMap()
+    private fun decodeGestures(raw: String?, defaults: Map<GestureType, GestureAction>): Map<GestureType, GestureAction> {
+        val result = defaults.toMutableMap()
         if (raw == null) return result
         val stored = runCatching { json.decodeFromString<Map<String, String>>(raw) }.getOrNull() ?: return result
         for ((g, a) in stored) {
-            val type = GestureType.fromId(g) ?: continue
+            val type = GestureType.fromId(g)?.takeIf { it in defaults } ?: continue
             val action = GestureAction.fromId(a) ?: continue
             result[type] = action
         }
@@ -167,6 +179,15 @@ class SettingsRepository(private val context: Context) {
             it[keyVisualizer] = m.visualizerEnabled
             it[keyVisualizerMode] = m.visualizerMode.id
         }
+    }
+
+    suspend fun setPadGestures(map: Map<GestureType, GestureAction>) {
+        val raw = json.encodeToString(map.entries.associate { it.key.id to it.value.id })
+        context.ihlDataStore.edit { it[keyPadGestures] = raw }
+    }
+
+    suspend fun setFavoritesGrid(grid: Boolean) {
+        context.ihlDataStore.edit { it[keyFavoritesGrid] = grid }
     }
 
     suspend fun setGestures(map: Map<GestureType, GestureAction>) {
