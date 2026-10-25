@@ -1,4 +1,4 @@
-# IcHomeLauncher 仕様書（v0.4.2）
+# IcHomeLauncher 仕様書（v0.5.0）
 
 > この文書は Claude Code に実装を依頼するための仕様書。
 > 作者表記は **IcTools**。実装は Claude Code、ビルドは GitHub Actions で行う。
@@ -12,7 +12,7 @@
 - パッケージ名：`com.ictools.ichomelauncher`
 - 種別：Android ホームアプリ（ランチャー）
 - コンセプト：壁紙の上に「ワイヤーフレーム風のフローティングパネル」を自由に配置し、ターミナルとジェスチャーで操作するランチャー
-- バージョン：`versionName = "0.4.2"`, `versionCode = 6`（0.x.x はベータ版）
+- バージョン：`versionName = "0.5.0"`, `versionCode = 7`（0.x.x はベータ版）
 
 ## 2. 技術スタック
 
@@ -241,6 +241,7 @@ data class PanelState(
 | `open_pad` | タッチパッドパネルを開く（v0.4.0） |
 | `media_play_pause` / `media_next` / `media_previous` | メディア操作（v0.4.0） |
 | `light_toggle` | ライトの切り替え（v0.4.0） |
+| `assist` | アシスタント起動（v0.5.0、34章） |
 | `close_focused` | フォーカス中のパネルを閉じる |
 | `close_all` | すべてのパネルを閉じる |
 
@@ -288,6 +289,7 @@ data class PanelState(
 | `memos rm <n>` | n 番のメモを削除（v0.2.0） |
 | `clock` / `calendar` / `status` / `network`（`net`）/ `favorites`（`favs`） | 各パネルを開く（v0.3.0） |
 | `camera` | カメラアプリを起動（v0.3.0） |
+| `assist` | アシスタントを起動（v0.5.0、34章） |
 | `light` / `light on` / `light off` | ライトの切り替え／点灯／消灯（v0.3.0） |
 | `fav` / `fav add <アプリ名>` / `fav rm <アプリ名>` | お気に入りの一覧／登録／解除（v0.3.0） |
 | `pad` | タッチパッドパネルを開く（v0.4.0） |
@@ -575,3 +577,8 @@ com.ictools.ichomelauncher
 - 固定中はタイトルの横に `[pos]` / `[size]` / `[fixed]` を表示
 - 画面サイズが変わった場合の画面内への補正は固定中も行う。「パネル配置をリセット」で固定も解除される
 - 位置・サイズのどちらかを固定しているパネルは閉じられない（v0.4.2）：✕ は薄く表示して押せない。`close_focused` / `close_all` のジェスチャーでも閉じず（`close_all` は固定していないパネルだけ閉じる）、ターミナルの `close` / `exit` は理由を表示する。閉じるには `⋮` メニューで固定を解除する
+
+## 34. アシスタント起動（v0.5.0）
+- ジェスチャーのアクション `assist`（背景・タッチパッドの両方で選べる）と、ターミナルの `assist` コマンド
+- `Intent.ACTION_ASSIST` で端末に設定されたアシスタントを開く。失敗したら Gemini アプリ（`com.google.android.apps.bard`）を直接起動する。どちらも無ければターミナルに `assist: no assistant app found` と表示
+- パッケージ可視性のため `<queries>` に `ACTION_ASSIST` と Gemini のパッケージを追加

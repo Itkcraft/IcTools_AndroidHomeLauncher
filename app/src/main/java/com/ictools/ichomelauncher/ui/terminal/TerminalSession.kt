@@ -31,6 +31,7 @@ interface TerminalHost {
     fun addFavorite(app: AppEntry)
     fun removeFavorite(app: AppEntry)
     fun openCamera(): Boolean
+    fun launchAssist(): Boolean
     fun torchOn(): Boolean
     fun setTorch(on: Boolean): String?
     fun startActivity(intent: android.content.Intent): Boolean
@@ -63,7 +64,7 @@ class TerminalSession(
             "help", "apps", "drawer", "open", "settings", "media", "schedule", "cal", "history",
             "memo", "memos", "clock", "calendar", "status", "network", "net", "favorites", "favs", "fav", "pad",
             "uninstall", "info", "new",
-            "camera", "light", "ls", "cd", "pwd", "cp", "mv", "mkdir", "rm",
+            "camera", "assist", "light", "ls", "cd", "pwd", "cp", "mv", "mkdir", "rm",
             "clear", "close", "exit", "version"
         )
 
@@ -79,6 +80,7 @@ class TerminalSession(
             "  open -a <app>      launch an app",
             "  <app>              launch an app (shorthand)",
             "  camera             open the camera app",
+            "  assist             open the assistant (Gemini)",
             "  light [on|off]     toggle / switch the flashlight",
             "  fav                list favorites",
             "  fav add <app>      add an app to favorites",
@@ -195,6 +197,10 @@ class TerminalSession(
                 "memo" -> { host.newMemo(""); return }
                 "memos" -> { listMemos(); return }
                 "camera" -> { if (!host.openCamera()) print("camera: no camera app found"); return }
+                "assist" -> {
+                    print(if (host.launchAssist()) "Opening assistant" else "assist: no assistant app found")
+                    return
+                }
                 "light" -> { toggleLight(!host.torchOn()); return }
                 "pwd" -> { fileCommand { print(files.pwd()) }; return }
                 "ls" -> { fileCommand { print(*files.ls(null, false).toTypedArray()) }; return }

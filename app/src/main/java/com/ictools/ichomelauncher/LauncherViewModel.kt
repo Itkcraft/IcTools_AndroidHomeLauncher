@@ -59,6 +59,9 @@ import java.util.UUID
 import kotlin.math.max
 import kotlin.math.min
 
+/** Gemini アプリのパッケージ名（アシスタント起動のフォールバック先） */
+const val GEMINI_PACKAGE = "com.google.android.apps.bard"
+
 /** インストールから何日間「新しいアプリ」として表示するか */
 const val NEW_APP_DAYS = 7
 
@@ -185,6 +188,7 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         override fun addFavorite(app: AppEntry) = this@LauncherViewModel.addFavorite(app)
         override fun removeFavorite(app: AppEntry) = this@LauncherViewModel.removeFavorite(app)
         override fun openCamera() = this@LauncherViewModel.openCamera()
+        override fun launchAssist() = this@LauncherViewModel.launchAssist()
         override fun torchOn() = torch.isOn.value
         override fun setTorch(on: Boolean) = torch.set(on)
         override fun startActivity(intent: Intent) = startActivitySafely(intent)
@@ -509,6 +513,7 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
             GestureAction.MEDIA_NEXT -> mediaRepository.next()
             GestureAction.MEDIA_PREVIOUS -> mediaRepository.previous()
             GestureAction.LIGHT_TOGGLE -> { torch.set(!torch.isOn.value) }
+            GestureAction.ASSIST -> launchAssist()
             GestureAction.NEW_MEMO -> newMemo()
             GestureAction.CLOSE_FOCUSED -> closeFocused()
             GestureAction.CLOSE_ALL -> closeAll()
@@ -637,6 +642,16 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     // ---- カメラ・ライト・ファイル ----
 
     fun openCamera(): Boolean = startActivitySafely(Intent(MediaStore.INTENT_ACTION_STILL_IMAGE_CAMERA))
+
+    /**
+     * アシスタントを起動する。
+     * まず ACTION_ASSIST（端末で設定されたアシスタント）を開き、失敗したら Gemini アプリを直接起動する。
+     */
+    fun launchAssist(): Boolean {
+        if (startActivitySafely(Intent(Intent.ACTION_ASSIST))) return true
+        val gemini = app.packageManager.getLaunchIntentForPackage(GEMINI_PACKAGE) ?: return false
+        return startActivitySafely(gemini)
+    }
 
     fun requestAllFilesAccess() {
         if (!startActivitySafely(Permissions.allFilesIntent(app))) startActivitySafely(Permissions.allFilesListIntent())

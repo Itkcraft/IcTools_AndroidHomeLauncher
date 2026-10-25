@@ -36,6 +36,11 @@
             <action android:name="android.intent.action.MAIN" />
             <category android:name="android.intent.category.LAUNCHER" />
         </intent>
+        <!-- assist：端末のアシスタント、フォールバック先の Gemini アプリ -->
+        <intent>
+            <action android:name="android.intent.action.ASSIST" />
+        </intent>
+        <package android:name="com.google.android.apps.bard" />
         <!-- camera コマンド -->
         <intent>
             <action android:name="android.media.action.STILL_IMAGE_CAMERA" />

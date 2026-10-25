@@ -61,6 +61,7 @@ enum class GestureAction(val id: String, val label: String) {
     MEDIA_NEXT("media_next", "media next"),
     MEDIA_PREVIOUS("media_previous", "media previous"),
     LIGHT_TOGGLE("light_toggle", "light toggle"),
+    ASSIST("assist", "assistant"),
     NEW_MEMO("new_memo", "new memo"),
     CLOSE_FOCUSED("close_focused", "close focused"),
     CLOSE_ALL("close_all", "close all");

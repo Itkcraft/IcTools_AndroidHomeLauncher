@@ -4,7 +4,7 @@
 
 - ホーム画面上の表示名：**IHL**
 - パッケージ名：`com.ictools.ichomelauncher`
-- バージョン：**v0.4.2**（ベータ版）
+- バージョン：**v0.5.0**（ベータ版）
 - 作者：IcTools
 - 対応 OS：Android 12（API 31）以降／縦画面固定
 
@@ -55,6 +55,7 @@
 | `memos rm <n>` | n 番のメモを削除 |
 | `clock` / `calendar` / `status` / `network`（`net`）/ `favorites`（`favs`） | 各パネルを開く |
 | `camera` | カメラアプリを起動 |
+| `assist` | アシスタント（Gemini）を起動 |
 | `light` / `light on` / `light off` | ライトの切り替え／点灯／消灯 |
 | `fav` / `fav add <アプリ名>` / `fav rm <アプリ名>` | お気に入りの一覧／登録／解除 |
 | `pad` | タッチパッドパネルを開く |
@@ -86,7 +87,7 @@
 | `pinch_in` | 画面全体 | `none` |
 | `pinch_out` | 画面全体 | `close_focused` |
 
-選べるアクション：`none` / `open_terminal` / `open_drawer` / `open_settings` / `open_media` / `open_schedule` / `open_history` / `open_clock` / `open_calendar` / `open_status` / `open_network` / `open_favorites` / `open_pad` / `media_play_pause` / `media_next` / `media_previous` / `light_toggle` / `new_memo` / `close_focused` / `close_all`
+選べるアクション：`none` / `open_terminal` / `open_drawer` / `open_settings` / `open_media` / `open_schedule` / `open_history` / `open_clock` / `open_calendar` / `open_status` / `open_network` / `open_favorites` / `open_pad` / `media_play_pause` / `media_next` / `media_previous` / `light_toggle` / `assist` / `new_memo` / `close_focused` / `close_all`
 
 - 画面端のシステムジェスチャー領域（ホーム・戻る）で始まったスワイプは無視します
 - Pad パネルでは、背景とは別に tap / swipe（上下左右）/ double_tap / long_press の割り当てを設定できます（設定パネルの「タッチパッド」）

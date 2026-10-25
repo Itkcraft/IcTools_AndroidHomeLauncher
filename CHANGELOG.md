@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.5.0（versionCode 7）
+
+- アシスタント起動：ジェスチャーのアクションに `assist` を追加（背景・タッチパッドの両方）、ターミナルに `assist` コマンドを追加
+  - 端末に設定されたアシスタント（ACTION_ASSIST）を開き、失敗したら Gemini アプリを直接起動
+
 ## v0.4.2（versionCode 6）
 
 - 位置またはサイズを固定しているパネルは閉じられないように変更（✕ は押せない表示に。`close_focused` / `close_all` のジェスチャーでも閉じない。ターミナルの `close` / `exit` は理由を表示）
