@@ -1,11 +1,19 @@
 package com.ictools.ichomelauncher.ui.terminal
 
+import android.app.SearchManager
+import android.content.Intent
+import android.net.Uri
+import android.provider.AlarmClock
 import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.snapshots.SnapshotStateList
 import com.ictools.ichomelauncher.BuildConfig
 import com.ictools.ichomelauncher.data.AppEntry
 import com.ictools.ichomelauncher.data.Memo
+import com.ictools.ichomelauncher.data.NEED_PERMISSION
 import com.ictools.ichomelauncher.data.PanelIds
+import com.ictools.ichomelauncher.data.SoundController
+import com.ictools.ichomelauncher.data.VolumeStream
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -34,11 +42,15 @@ interface TerminalHost {
     fun launchAssist(): Boolean
     fun torchOn(): Boolean
     fun setTorch(on: Boolean): String?
-    fun startActivity(intent: android.content.Intent): Boolean
+    fun startActivity(intent: Intent): Boolean
     fun requestAllFilesAccess()
     fun uninstall(app: AppEntry): Boolean
     fun openAppInfo(app: AppEntry): Boolean
     fun newApps(): List<AppEntry>
+    fun aliases(): Map<String, String>
+    fun saveAliases(aliases: Map<String, String>)
+    fun sound(): SoundController
+    fun requestWriteSettings()
 }
 
 /** ログ1行分。[action] があればタップで実行できる */
@@ -64,53 +76,19 @@ class TerminalSession(
             "help", "apps", "drawer", "open", "settings", "media", "schedule", "cal", "history",
             "memo", "memos", "clock", "calendar", "status", "network", "net", "favorites", "favs", "fav", "pad",
             "uninstall", "info", "new",
-            "camera", "assist", "light", "ls", "cd", "pwd", "cp", "mv", "mkdir", "rm",
+            "camera", "assist", "light", "ls", "cd", "pwd", "cp", "mv", "mkdir", "rm", "find",
+            "calc", "g", "br", "alias", "unalias", "timer", "alarm", "vol", "bright", "sound", "?",
             "clear", "close", "exit", "version"
         )
 
         /** ファイルパスを引数に取るコマンド */
         private val FILE_COMMANDS = setOf("ls", "cd", "cp", "mv", "mkdir", "rm", "open")
 
-        private val HELP = listOf(
-            "commands:",
-            "  help               show this help",
-            "  apps | drawer      open the app drawer",
-            "  open <app|file>    open a file in the current dir,",
-            "                     otherwise launch an app",
-            "  open -a <app>      launch an app",
-            "  <app>              launch an app (shorthand)",
-            "  camera             open the camera app",
-            "  assist             open the assistant (Gemini)",
-            "  light [on|off]     toggle / switch the flashlight",
-            "  fav                list favorites",
-            "  fav add <app>      add an app to favorites",
-            "  fav rm <app>       remove an app from favorites",
-            "  uninstall <app>    uninstall an app (asks the system)",
-            "  info <app>         open the app info screen",
-            "  new                list newly installed apps",
-            "panels:",
-            "  settings | media | history | clock | calendar",
-            "  status | network (net) | favorites (favs) | pad",
-            "  schedule (cal)",
-            "memos:",
-            "  memo [text]        create a new memo",
-            "  memos              list memos",
-            "  memos <n>          open memo #n",
-            "  memos rm <n>       delete memo #n",
-            "files (needs all files access):",
-            "  pwd                show the current directory",
-            "  ls [-a] [path]     list files",
-            "  cd [path]          change directory (~ = storage root)",
-            "  mkdir <path>       create a directory",
-            "  cp <src> <dst>     copy a file / directory",
-            "  mv <src> <dst>     move / rename",
-            "  rm <path>          delete (asks y/N first)",
-            "others:",
-            "  clear              clear the log",
-            "  close | exit       close the terminal",
-            "  version            show version",
-            "keys: → or Tab accepts the gray suggestion"
-        )
+        /** Brave のパッケージ名（br コマンド） */
+        private const val BRAVE_PACKAGE = "com.brave.browser"
+
+        /** alias の名前に使える文字 */
+        private val ALIAS_NAME = Regex("^[a-z0-9_-]+$")
     }
 
     /** 出力ログ（新しい行が末尾） */
@@ -121,6 +99,14 @@ class TerminalSession(
 
     /** 入力履歴（新しいものが末尾。再起動後も残るよう保存する） */
     val history: SnapshotStateList<String> = mutableStateListOf()
+
+    /** 次に入力欄へ入れる文字列（ターミナルパネルが受け取って空に戻す） */
+    val pendingInput = mutableStateOf<String?>(null)
+
+    /** 入力欄に文字列を入れる（実行はしない） */
+    fun prefill(text: String) {
+        pendingInput.value = text
+    }
 
     // y/N の確認待ち（rm など）
     private var pendingConfirm: (suspend () -> Unit)? = null
@@ -172,13 +158,27 @@ class TerminalSession(
         if (history.size > MAX_HISTORY) history.removeRange(0, history.size - MAX_HISTORY)
         host.onHistoryChanged(history.toList())
 
-        val command = input.substringBefore(' ').lowercase()
-        val argument = input.substringAfter(' ', "").trim()
+        // 1 語目が短縮コマンドなら置き換える（1 段だけ）
+        val expanded = expandAlias(input)
+        val command = expanded.substringBefore(' ').lowercase()
+        val argument = expanded.substringAfter(' ', "").trim()
 
         // 引数を取らないコマンドは単独で入力された場合のみコマンドとして扱う
         if (argument.isEmpty()) {
             when (command) {
-                "help" -> { print(*HELP.toTypedArray()); return }
+                "help" -> { printHelpPage(1); return }
+                "?" -> { host.openPanel(PanelIds.HELP); return }
+                "sound" -> { host.openPanel(PanelIds.SOUND); return }
+                "alias" -> { listAliases(); return }
+                "vol" -> { showVolumes(); return }
+                "bright" -> { showBrightness(); return }
+                "calc" -> { print("usage: calc <expression>  e.g. calc 12*8"); return }
+                "g" -> { print("usage: g <words>"); return }
+                "br" -> { print("usage: br <url|words>"); return }
+                "timer" -> { print("usage: timer <time>  e.g. timer 3m / 1h30m / 90s"); return }
+                "alarm" -> { print("usage: alarm <HH:MM> [label]"); return }
+                "find" -> { print("usage: find <name>"); return }
+                "unalias" -> { print("usage: unalias <name>"); return }
                 "apps", "drawer" -> { host.openPanel(PanelIds.DRAWER); return }
                 "settings" -> { host.openPanel(PanelIds.SETTINGS); return }
                 "media" -> { host.openPanel(PanelIds.MEDIA); return }
@@ -223,6 +223,17 @@ class TerminalSession(
             }
             "memos" -> memosCommand(argument)
             "fav" -> favCommand(args)
+            "help" -> helpCommand(argument)
+            "calc" -> calc(argument)
+            "g" -> googleSearch(argument)
+            "br" -> brave(argument)
+            "alias" -> aliasCommand(argument)
+            "unalias" -> unaliasCommand(argument)
+            "timer" -> timer(argument)
+            "alarm" -> alarm(argument)
+            "vol" -> volCommand(args)
+            "bright" -> brightCommand(argument)
+            "find" -> fileCommand { find(argument) }
             "uninstall" -> {
                 val app = findApp(argument, host.apps()) ?: return
                 if (app.isSystem) {
@@ -270,7 +281,265 @@ class TerminalSession(
             }
             "rm" -> fileCommand { confirmRemove(args) }
             // コマンド名と一致しない入力はアプリ名として扱う（open の省略形）
-            else -> openByName(input)
+            else -> openByName(expanded)
+        }
+    }
+
+    // ---- ヘルプ（ページ表示） ----
+
+    /** ページの目次と指定ページを表示する */
+    private fun printHelpPage(page: Int) {
+        val sections = CommandHelp.SECTIONS
+        val index = (page - 1).coerceIn(0, sections.lastIndex)
+        val section = sections[index]
+        print("help ${index + 1}/${sections.size}: ${section.title}")
+        val width = section.entries.maxOf { it.usage.length }.coerceAtMost(26)
+        section.entries.forEach { e -> print("  ${e.usage.padEnd(width)}  ${e.description}") }
+        val pages = sections.mapIndexed { i, s -> "${i + 1}:${s.title}" }.joinToString("  ")
+        print("pages  $pages")
+        print("'help <n>' for a page, 'help <command>' for details, '?' for the help panel")
+    }
+
+    private fun helpCommand(argument: String) {
+        argument.toIntOrNull()?.let {
+            printHelpPage(it)
+            return
+        }
+        val entries = CommandHelp.find(argument)
+        if (entries.isEmpty()) {
+            print("help: no such command: $argument")
+            return
+        }
+        entries.forEach { e ->
+            print(e.usage)
+            print("  ${e.description}")
+            e.example?.let { print("  e.g. $it") }
+        }
+    }
+
+    // ---- 電卓・検索 ----
+
+    private fun calc(expression: String) {
+        try {
+            val result = Calculator.evaluate(expression)
+            // 結果をタップすると入力欄に入る（続けて計算できる）
+            printAction("= $result") { prefill(result) }
+        } catch (e: CalcException) {
+            print(e.message ?: "calc: error")
+        }
+    }
+
+    /** Google の検索結果をブラウザで開く */
+    private fun googleSearch(words: String) {
+        val uri = Uri.parse("https://www.google.com/search?q=" + Uri.encode(words))
+        print("Searching: $words")
+        if (!host.startActivity(Intent(Intent.ACTION_VIEW, uri))) print("g: no browser found")
+    }
+
+    /** Brave で開く：URL ならそのまま、それ以外は Brave に設定された検索エンジンで検索 */
+    private fun brave(text: String) {
+        val url = toUrl(text)
+        val intent = if (url != null) {
+            Intent(Intent.ACTION_VIEW, Uri.parse(url))
+        } else {
+            Intent(Intent.ACTION_WEB_SEARCH).putExtra(SearchManager.QUERY, text)
+        }.setPackage(BRAVE_PACKAGE)
+        print(if (url != null) "Opening in Brave: $url" else "Searching in Brave: $text")
+        if (host.startActivity(intent)) return
+        // 検索の Intent に対応していない場合は Brave Search の URL で開く
+        if (url == null && host.startActivity(
+                Intent(Intent.ACTION_VIEW, Uri.parse("https://search.brave.com/search?q=" + Uri.encode(text))).setPackage(BRAVE_PACKAGE)
+            )
+        ) return
+        print("br: Brave is not installed")
+    }
+
+    /** URL らしければ https 付きの URL を返す（空白を含まず、ドットを含む／スキーム付き） */
+    private fun toUrl(text: String): String? {
+        val t = text.trim()
+        if (t.contains(' ')) return null
+        if (t.startsWith("http://") || t.startsWith("https://")) return t
+        return if (Regex("^[\\w-]+(\\.[\\w-]+)+(:\\d+)?(/.*)?$").matches(t)) "https://$t" else null
+    }
+
+    // ---- 短縮コマンド ----
+
+    private fun expandAlias(input: String): String {
+        val first = input.substringBefore(' ')
+        val value = host.aliases()[first.lowercase()] ?: return input
+        val rest = input.substringAfter(' ', "")
+        return if (rest.isEmpty()) value else "$value $rest"
+    }
+
+    private fun listAliases() {
+        val aliases = host.aliases()
+        if (aliases.isEmpty()) {
+            print("no aliases. e.g. alias dc=Discord")
+            return
+        }
+        aliases.toSortedMap().forEach { (k, v) -> print("  $k = $v") }
+    }
+
+    private fun aliasCommand(argument: String) {
+        val eq = argument.indexOf('=')
+        if (eq < 0) {
+            // alias <name>：1 件表示
+            val v = host.aliases()[argument.lowercase()]
+            print(if (v != null) "  ${argument.lowercase()} = $v" else "alias: not found: $argument")
+            return
+        }
+        val name = argument.substring(0, eq).trim().lowercase()
+        val value = argument.substring(eq + 1).trim().removeSurrounding("\"").removeSurrounding("'")
+        when {
+            !ALIAS_NAME.matches(name) -> print("alias: use a-z 0-9 _ - for the name")
+            name in COMMANDS -> print("alias: '$name' is a built-in command")
+            value.isEmpty() -> print("usage: alias <name>=<text>")
+            else -> {
+                host.saveAliases(host.aliases() + (name to value))
+                print("alias: $name = $value")
+            }
+        }
+    }
+
+    private fun unaliasCommand(argument: String) {
+        val name = argument.trim().lowercase()
+        if (name !in host.aliases()) {
+            print("unalias: not found: $name")
+            return
+        }
+        host.saveAliases(host.aliases() - name)
+        print("unalias: $name")
+    }
+
+    // ---- タイマー・アラーム（時計アプリへ） ----
+
+    /** 3m / 90s / 1h30m / 1:30（分:秒）/ 5（分）を秒に */
+    private fun parseDuration(text: String): Int? {
+        val t = text.trim().lowercase().replace(" ", "")
+        t.toIntOrNull()?.let { return it * 60 }
+        Regex("^(\\d+):(\\d{1,2})$").matchEntire(t)?.let { m ->
+            return m.groupValues[1].toInt() * 60 + m.groupValues[2].toInt()
+        }
+        val m = Regex("^(?:(\\d+)h)?(?:(\\d+)m(?:in)?)?(?:(\\d+)s(?:ec)?)?$").matchEntire(t) ?: return null
+        if (m.value.isEmpty()) return null
+        val (h, mi, sec) = m.destructured
+        return (h.toIntOrNull() ?: 0) * 3600 + (mi.toIntOrNull() ?: 0) * 60 + (sec.toIntOrNull() ?: 0)
+    }
+
+    private fun timer(argument: String) {
+        val seconds = parseDuration(argument)
+        if (seconds == null || seconds <= 0 || seconds > 24 * 3600) {
+            print("timer: e.g. timer 3m / 1h30m / 90s")
+            return
+        }
+        val intent = Intent(AlarmClock.ACTION_SET_TIMER)
+            .putExtra(AlarmClock.EXTRA_LENGTH, seconds)
+            .putExtra(AlarmClock.EXTRA_SKIP_UI, true)
+        val text = buildString {
+            if (seconds >= 3600) append("${seconds / 3600}h")
+            if (seconds % 3600 >= 60) append("${seconds % 3600 / 60}m")
+            if (seconds % 60 > 0) append("${seconds % 60}s")
+        }
+        print(if (host.startActivity(intent)) "timer set: $text" else "timer: the clock app does not support timers")
+    }
+
+    private fun alarm(argument: String) {
+        val time = argument.substringBefore(' ')
+        val label = argument.substringAfter(' ', "").trim()
+        val m = Regex("^(\\d{1,2})[:：]?(\\d{2})$").matchEntire(time)
+        val hour = m?.groupValues?.get(1)?.toIntOrNull()
+        val minute = m?.groupValues?.get(2)?.toIntOrNull()
+        if (hour == null || minute == null || hour > 23 || minute > 59) {
+            print("alarm: e.g. alarm 7:00 / alarm 06:30 label")
+            return
+        }
+        val intent = Intent(AlarmClock.ACTION_SET_ALARM)
+            .putExtra(AlarmClock.EXTRA_HOUR, hour)
+            .putExtra(AlarmClock.EXTRA_MINUTES, minute)
+            .putExtra(AlarmClock.EXTRA_SKIP_UI, true)
+        if (label.isNotEmpty()) intent.putExtra(AlarmClock.EXTRA_MESSAGE, label)
+        val text = "%d:%02d".format(hour, minute) + if (label.isNotEmpty()) " ($label)" else ""
+        print(if (host.startActivity(intent)) "alarm set: $text" else "alarm: the clock app does not support alarms")
+    }
+
+    // ---- 音量・明るさ ----
+
+    private fun showVolumes() {
+        val s = host.sound().snapshot()
+        VolumeStream.entries.forEach { v ->
+            val mute = if (v == VolumeStream.MEDIA && s.mediaMuted) " (muted)" else ""
+            print("  ${v.id.padEnd(6)} ${s.volumes[v] ?: 0}%$mute")
+        }
+    }
+
+    private fun volCommand(args: List<String>) {
+        val sound = host.sound()
+        val first = args.firstOrNull()?.lowercase() ?: return showVolumes()
+        // vol <ring|notif|alarm|media> <値> / vol <値>（メディア）
+        val target = VolumeStream.fromId(first)
+        val stream = target ?: VolumeStream.MEDIA
+        val value = (if (target != null) args.getOrNull(1) else first)?.lowercase()
+        val error = when {
+            value == null -> { print("  ${stream.id} ${sound.getVolume(stream)}%"); return }
+            value == "up" -> sound.adjust(stream, up = true)
+            value == "down" -> sound.adjust(stream, up = false)
+            value == "mute" && stream == VolumeStream.MEDIA -> sound.toggleMute()
+            value.removeSuffix("%").toIntOrNull() != null -> sound.setVolume(stream, value.removeSuffix("%").toInt(), showUi = true)
+            else -> { print("usage: vol [media|ring|notif|alarm] <0-100|up|down|mute>"); return }
+        }
+        print(error ?: "  ${stream.id} ${sound.getVolume(stream)}%")
+    }
+
+    private fun showBrightness() {
+        val s = host.sound().snapshot()
+        print("  brightness ${s.brightness}%" + if (s.autoBrightness) " (auto)" else "")
+        if (!s.canWriteSettings) printWriteSettingsRequest()
+    }
+
+    private fun brightCommand(argument: String) {
+        val sound = host.sound()
+        val a = argument.trim().lowercase()
+        val error = when {
+            a == "auto" -> sound.setAutoBrightness(true)
+            a == "manual" -> sound.setAutoBrightness(false)
+            a.removeSuffix("%").toIntOrNull() != null -> sound.setBrightness(a.removeSuffix("%").toInt())
+            else -> { print("usage: bright [0-100|auto]"); return }
+        }
+        if (error == null) {
+            showBrightness()
+        } else {
+            print(error)
+            if (error == NEED_PERMISSION) printWriteSettingsRequest()
+        }
+    }
+
+    private fun printWriteSettingsRequest() {
+        printAction("  [ 「システム設定の変更」を許可する ]") { host.requestWriteSettings() }
+    }
+
+    // ---- ファイル検索 ----
+
+    private fun find(query: String) {
+        print("searching '$query' under ${files.display(files.cwd)} ...")
+        scope.launch {
+            val (found, truncated) = withContext(Dispatchers.IO) { runCatching { files.find(query) }.getOrDefault(emptyList<File>() to false) }
+            if (found.isEmpty()) {
+                print("find: no match")
+                return@launch
+            }
+            found.forEach { f ->
+                val label = files.display(f) + if (f.isDirectory) "/" else ""
+                // タップ：ファイルは開く、ディレクトリはそこへ移動
+                printAction("  $label") {
+                    if (f.isDirectory) {
+                        runCatching { files.cd(f.path) }
+                        print(files.display(files.cwd))
+                    } else {
+                        openFile(f)
+                    }
+                }
+            }
+            print("${found.size} found" + if (truncated) " (stopped at the limit)" else "")
         }
     }
 
@@ -469,6 +738,7 @@ class TerminalSession(
         // 1 語目：コマンド名 → アプリ名
         if (firstSpace < 0) {
             val candidate = COMMANDS.firstOrNull { it.startsWith(input, ignoreCase = true) && it.length > input.length }
+                ?: host.aliases().keys.sorted().firstOrNull { it.startsWith(input, ignoreCase = true) && it.length > input.length }
                 ?: appCompletion(input, host.apps())
             return candidate?.takeIf { it.length > input.length }
         }
@@ -487,6 +757,12 @@ class TerminalSession(
                 }
             }
             "uninstall", "info" -> rest.takeIf { it.isNotEmpty() }?.let { appCompletion(it, host.apps()) }?.let { head + it }
+            "unalias" -> host.aliases().keys.sorted().firstOrNull { it.startsWith(rest, ignoreCase = true) && it.length > rest.length }?.let { head + it }
+            "vol" -> if (rest.contains(' ')) null else listOf("media", "ring", "notif", "alarm", "up", "down", "mute")
+                .firstOrNull { it.startsWith(rest, ignoreCase = true) && it.length > rest.length }?.let { head + it }
+            "bright" -> listOf("auto", "manual").firstOrNull { it.startsWith(rest, ignoreCase = true) && it.length > rest.length }?.let { head + it }
+            "help" -> (CommandHelp.SECTIONS.flatMap { it.entries.flatMap { e -> e.names } }.distinct())
+                .firstOrNull { it.startsWith(rest, ignoreCase = true) && it.length > rest.length }?.let { head + it }
             "light" -> listOf("on", "off").firstOrNull { it.startsWith(rest, ignoreCase = true) && it.length > rest.length }?.let { head + it }
             "memos" -> if ("rm".startsWith(rest, ignoreCase = true) && rest.length < 2) head + "rm" else null
             "open" -> when {

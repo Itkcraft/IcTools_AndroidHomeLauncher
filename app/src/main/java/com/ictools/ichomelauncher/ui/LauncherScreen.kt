@@ -29,6 +29,8 @@ import com.ictools.ichomelauncher.ui.clock.ClockPanel
 import com.ictools.ichomelauncher.ui.drawer.DrawerActions
 import com.ictools.ichomelauncher.ui.drawer.DrawerPanel
 import com.ictools.ichomelauncher.ui.pad.PadPanel
+import com.ictools.ichomelauncher.ui.sound.SoundPanel
+import com.ictools.ichomelauncher.ui.help.HelpPanel
 import com.ictools.ichomelauncher.ui.favorites.FavoritesPanel
 import com.ictools.ichomelauncher.ui.history.HistoryActions
 import com.ictools.ichomelauncher.ui.history.HistoryData
@@ -180,7 +182,8 @@ private fun PanelContent(id: String, memo: Memo?, vm: LauncherViewModel, onOpenH
                     setAppearance = { vm.setAppearance(it) },
                     setMediaSettings = { vm.setMediaSettings(it) },
                     requestAllFiles = vm::requestAllFilesAccess,
-                    requestUsageAccess = vm::requestUsageAccess
+                    requestUsageAccess = vm::requestUsageAccess,
+                    requestWriteSettings = vm::requestWriteSettings
                 )
             )
         }
@@ -258,6 +261,10 @@ private fun PanelContent(id: String, memo: Memo?, vm: LauncherViewModel, onOpenH
         PanelIds.CLOCK -> ClockPanel()
 
         PanelIds.PAD -> PadPanel(onGesture = vm::onPadGesture)
+
+        PanelIds.SOUND -> SoundPanel(sound = vm.sound, requestWriteSettings = vm::requestWriteSettings)
+
+        PanelIds.HELP -> HelpPanel(onInsert = vm::insertIntoTerminal)
 
         PanelIds.CALENDAR -> {
             val version by vm.eventsVersion.collectAsStateWithLifecycle()

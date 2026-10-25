@@ -57,6 +57,8 @@ enum class GestureAction(val id: String, val label: String) {
     OPEN_NETWORK("open_network", "open network"),
     OPEN_FAVORITES("open_favorites", "open favorites"),
     OPEN_PAD("open_pad", "open pad"),
+    OPEN_SOUND("open_sound", "open sound"),
+    OPEN_HELP("open_help", "open help"),
     MEDIA_PLAY_PAUSE("media_play_pause", "media play/pause"),
     MEDIA_NEXT("media_next", "media next"),
     MEDIA_PREVIOUS("media_previous", "media previous"),

@@ -27,7 +27,9 @@ import com.ictools.ichomelauncher.data.PermissionState
 import com.ictools.ichomelauncher.data.Appearance
 import com.ictools.ichomelauncher.data.AudioEffects
 import com.ictools.ichomelauncher.data.EqState
+import com.ictools.ichomelauncher.data.AliasRepository
 import com.ictools.ichomelauncher.data.FavoritesRepository
+import com.ictools.ichomelauncher.data.SoundController
 import com.ictools.ichomelauncher.data.MediaSettings
 import com.ictools.ichomelauncher.data.NetworkMonitor
 import com.ictools.ichomelauncher.data.NetworkSnapshot
@@ -91,6 +93,13 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     private val networkMonitor = NetworkMonitor(application)
     private val audioEffects = AudioEffects.get(application)
     private val fileShell = FileShell(application)
+    private val aliasRepository = AliasRepository(application)
+
+    /** 音量・明るさ */
+    val sound = SoundController(application)
+
+    // ターミナルの短縮コマンド
+    private var aliases: Map<String, String> = emptyMap()
 
     /** インストール済みアプリ一覧 */
     val apps: StateFlow<List<AppEntry>> = appRepository.apps
@@ -196,6 +205,13 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         override fun uninstall(app: AppEntry) = this@LauncherViewModel.uninstall(app)
         override fun openAppInfo(app: AppEntry) = this@LauncherViewModel.openAppInfo(app)
         override fun newApps() = this@LauncherViewModel.newApps.value
+        override fun aliases() = this@LauncherViewModel.aliases
+        override fun saveAliases(aliases: Map<String, String>) {
+            this@LauncherViewModel.aliases = aliases
+            viewModelScope.launch { aliasRepository.save(aliases) }
+        }
+        override fun sound() = this@LauncherViewModel.sound
+        override fun requestWriteSettings() = this@LauncherViewModel.requestWriteSettings()
         override fun apps() = appRepository.apps.value
         override fun launchApp(app: AppEntry) = this@LauncherViewModel.launchApp(app)
         override fun openPanel(id: String) = this@LauncherViewModel.openPanel(id)
@@ -214,6 +230,7 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
             terminal.restoreHistory(historyRepository.loadCommands())
             _launchHistory.value = historyRepository.loadLaunches()
             _favoriteKeys.value = favoritesRepository.load()
+            aliases = aliasRepository.load()
         }
         mediaRepository.start()
         // 表示日数が変わったら予定を読み直す
@@ -285,7 +302,9 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
             closed(PanelIds.NETWORK, listW, min(400f, h * 0.5f), h * 0.12f, 8),
             closed(PanelIds.FAVORITES, min(w - 32f, 320f), min(380f, h * 0.5f), h * 0.12f, 9),
             closed(PanelIds.PAD, min(w - 32f, 300f), 220f, h * 0.55f, 10),
-            PanelState(PanelIds.TERMINAL, centeredX(termW), termY, termW, termH, isOpen = true, zOrder = 11)
+            closed(PanelIds.SOUND, listW, min(440f, h * 0.55f), h * 0.12f, 11),
+            closed(PanelIds.HELP, listW, min(460f, h * 0.55f), h * 0.08f, 12),
+            PanelState(PanelIds.TERMINAL, centeredX(termW), termY, termW, termH, isOpen = true, zOrder = 13)
         ).map { clamp(it) }
     }
 
@@ -509,6 +528,8 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
             GestureAction.OPEN_NETWORK -> openPanel(PanelIds.NETWORK)
             GestureAction.OPEN_FAVORITES -> openPanel(PanelIds.FAVORITES)
             GestureAction.OPEN_PAD -> openPanel(PanelIds.PAD)
+            GestureAction.OPEN_SOUND -> openPanel(PanelIds.SOUND)
+            GestureAction.OPEN_HELP -> openPanel(PanelIds.HELP)
             GestureAction.MEDIA_PLAY_PAUSE -> mediaRepository.playPause()
             GestureAction.MEDIA_NEXT -> mediaRepository.next()
             GestureAction.MEDIA_PREVIOUS -> mediaRepository.previous()
@@ -645,12 +666,25 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
 
     /**
      * アシスタントを起動する。
-     * まず ACTION_ASSIST（端末で設定されたアシスタント）を開き、失敗したら Gemini アプリを直接起動する。
+     * ACTION_ASSIST は Google アプリ（検索）が受け取ってしまい、電源ボタン長押しのアシスタント表示は
+     * 公開 API で呼べないため、Gemini アプリを直接起動する。入っていなければ ACTION_ASSIST に頼る。
      */
     fun launchAssist(): Boolean {
-        if (startActivitySafely(Intent(Intent.ACTION_ASSIST))) return true
-        val gemini = app.packageManager.getLaunchIntentForPackage(GEMINI_PACKAGE) ?: return false
-        return startActivitySafely(gemini)
+        app.packageManager.getLaunchIntentForPackage(GEMINI_PACKAGE)?.let { gemini ->
+            if (startActivitySafely(gemini)) return true
+        }
+        return startActivitySafely(Intent(Intent.ACTION_ASSIST))
+    }
+
+    /** 「システム設定の変更」（明るさ）の許可画面を開く */
+    fun requestWriteSettings() {
+        if (!startActivitySafely(sound.writeSettingsIntent())) startActivitySafely(Intent(android.provider.Settings.ACTION_MANAGE_WRITE_SETTINGS))
+    }
+
+    /** ヘルプパネルなどから：ターミナルを開いて入力欄に文字列を入れる */
+    fun insertIntoTerminal(text: String) {
+        openPanel(PanelIds.TERMINAL)
+        terminal.prefill(text)
     }
 
     fun requestAllFilesAccess() {

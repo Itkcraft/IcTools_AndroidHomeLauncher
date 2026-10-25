@@ -123,6 +123,31 @@ class FileShell(private val context: Context) {
         return "removed: ${display(f)}"
     }
 
+    /**
+     * 現在のディレクトリ以下から、名前に [query] を含むもの（大文字小文字は区別しない）を探す。
+     * 隠しファイルと参照できない Android/data・obb は除く。件数が [limit] に達したら打ち切る（2 つ目の値が true）。
+     */
+    fun find(query: String, limit: Int = 100): Pair<List<File>, Boolean> {
+        val results = mutableListOf<File>()
+        val queue = ArrayDeque<File>().apply { add(cwd) }
+        val skip = setOf(File(root, "Android/data").path, File(root, "Android/obb").path)
+        var visited = 0
+        while (queue.isNotEmpty()) {
+            val dir = queue.removeFirst()
+            val children = dir.listFiles() ?: continue
+            for (f in children.sortedBy { it.name.lowercase() }) {
+                if (f.name.startsWith(".")) continue
+                if (++visited > 200_000) return results to true
+                if (f.name.contains(query, ignoreCase = true)) {
+                    results.add(f)
+                    if (results.size >= limit) return results to true
+                }
+                if (f.isDirectory && f.path !in skip) queue.add(f)
+            }
+        }
+        return results to false
+    }
+
     /** ファイルを種類に応じたアプリで開く Intent（FileProvider 経由） */
     fun openIntent(f: File): Intent {
         val uri = FileProvider.getUriForFile(context, "${context.packageName}.files", f)

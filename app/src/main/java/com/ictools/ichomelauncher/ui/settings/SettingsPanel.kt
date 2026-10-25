@@ -66,7 +66,8 @@ class SettingsActions(
     val setAppearance: (Appearance) -> Unit,
     val setMediaSettings: (MediaSettings) -> Unit,
     val requestAllFiles: () -> Unit,
-    val requestUsageAccess: () -> Unit
+    val requestUsageAccess: () -> Unit,
+    val requestWriteSettings: () -> Unit
 )
 
 /** 設定パネルの中身：背景／ジェスチャー／パネル／情報 */
@@ -184,6 +185,9 @@ fun SettingsPanel(settings: LauncherSettings, blurAvailable: Boolean, permission
         Spacer(Modifier.height(6.dp))
         PermissionRow("電話", permissions.phoneState, actions.openAppInfo)
         Text("通信パネルの回線種別（5G/LTE）表示で使用", color = IhlColors.TextDim, fontSize = 11.sp)
+        Spacer(Modifier.height(6.dp))
+        PermissionRow("システム設定の変更", permissions.writeSettings, actions.requestWriteSettings)
+        Text("画面の明るさの変更（Sound パネル・bright コマンド）で使用", color = IhlColors.TextDim, fontSize = 11.sp)
 
         // ---- 情報 ----
         SectionHeader("情報")

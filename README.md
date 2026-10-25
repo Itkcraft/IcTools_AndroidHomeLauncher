@@ -4,7 +4,7 @@
 
 - ホーム画面上の表示名：**IHL**
 - パッケージ名：`com.ictools.ichomelauncher`
-- バージョン：**v0.5.0**（ベータ版）
+- バージョン：**v0.6.0**（ベータ版）
 - 作者：IcTools
 - 対応 OS：Android 12（API 31）以降／縦画面固定
 
@@ -13,7 +13,7 @@
 ## 機能
 
 - OS の壁紙をそのまま表示し、ウィンドウ背後のぼかし（端末が対応している場合）とスモーク（暗さ）を重ねる
-- フローティングパネル（Terminal / Apps / Settings / Media / Schedule / History / Memo / Clock / Calendar / Status / Network / Favorites / Pad）
+- フローティングパネル（Terminal / Apps / Settings / Media / Schedule / History / Memo / Clock / Calendar / Status / Network / Favorites / Pad / Sound / Help）
   - タイトルバーのドラッグで移動、右下の三角ハンドルでリサイズ（最小 160×120dp）
   - タッチしたパネルが最前面になる
   - タイトルバーの `⋮` から位置・サイズを固定できる（固定中のパネルは閉じられない）
@@ -29,6 +29,8 @@
 - 稼働状況パネル：RAM・バッテリー・発熱・ストレージ・稼働時間・最近使ったアプリ
 - 通信パネル：Wi-Fi／モバイルの接続状態・電波強度・リンク速度・SSID
 - お気に入りパネル：よく使うアプリをグリッド／リストで表示、長押しドラッグで並び替え
+- 音量・明るさパネル：音量4種類と明るさ・自動調整
+- ヘルプパネル：コマンドをカテゴリと検索で探し、タップでターミナルに入力
 - タッチパッドパネル：パネル内のスワイプ・タップに好きなアクションを割り当てられる操作スペース
 - ドロワー：新しくインストールしたアプリを先頭に表示、長押しメニューからアプリ情報・アンインストール
 - ターミナルの入力補完（グレーのゴーストテキスト、→ ボタンか Tab で確定）とファイル操作
@@ -56,6 +58,16 @@
 | `clock` / `calendar` / `status` / `network`（`net`）/ `favorites`（`favs`） | 各パネルを開く |
 | `camera` | カメラアプリを起動 |
 | `assist` | アシスタント（Gemini）を起動 |
+| `calc <式>` | 電卓（例：`calc 12*8`） |
+| `g <語>` | Google で検索 |
+| `br <URL｜語>` | Brave で開く／検索 |
+| `alias dc=Discord` / `alias` / `unalias dc` | 自分用の短縮コマンドの登録／一覧／削除 |
+| `timer 3m` / `alarm 7:00` | 時計アプリにタイマー・アラームを設定 |
+| `find <名前>` | ファイルを名前で検索 |
+| `vol` / `vol 50` / `vol ring 30` / `vol up` | 音量 |
+| `bright` / `bright 60` / `bright auto` | 画面の明るさ |
+| `sound` / `?` | 音量・明るさパネル／ヘルプパネルを開く |
+| `help` / `help 3` / `help calc` | ヘルプ（ページ表示／コマンドの説明） |
 | `light` / `light on` / `light off` | ライトの切り替え／点灯／消灯 |
 | `fav` / `fav add <アプリ名>` / `fav rm <アプリ名>` | お気に入りの一覧／登録／解除 |
 | `pad` | タッチパッドパネルを開く |
@@ -87,7 +99,7 @@
 | `pinch_in` | 画面全体 | `none` |
 | `pinch_out` | 画面全体 | `close_focused` |
 
-選べるアクション：`none` / `open_terminal` / `open_drawer` / `open_settings` / `open_media` / `open_schedule` / `open_history` / `open_clock` / `open_calendar` / `open_status` / `open_network` / `open_favorites` / `open_pad` / `media_play_pause` / `media_next` / `media_previous` / `light_toggle` / `assist` / `new_memo` / `close_focused` / `close_all`
+選べるアクション：`none` / `open_terminal` / `open_drawer` / `open_settings` / `open_media` / `open_schedule` / `open_history` / `open_clock` / `open_calendar` / `open_status` / `open_network` / `open_favorites` / `open_pad` / `media_play_pause` / `media_next` / `media_previous` / `light_toggle` / `assist` / `open_sound` / `open_help` / `new_memo` / `close_focused` / `close_all`
 
 - 画面端のシステムジェスチャー領域（ホーム・戻る）で始まったスワイプは無視します
 - Pad パネルでは、背景とは別に tap / swipe（上下左右）/ double_tap / long_press の割り当てを設定できます（設定パネルの「タッチパッド」）
@@ -104,6 +116,7 @@
 | 使用状況へのアクセス | 稼働状況の「最近使ったアプリ」 |
 | 正確な位置情報 | 通信パネルの SSID 表示（端末の位置情報サービスも ON にする必要あり） |
 | 電話 | 通信パネルの回線種別（5G/LTE）表示 |
+| システム設定の変更 | 画面の明るさの変更 |
 
 どれも、使う機能のパネル（ファイル操作はターミナル）に理由と許可ボタンが出ます。設定パネルの「権限」からも確認できます。未許可でもその項目が表示されないだけで、アプリは動作します。
 GitHub からダウンロードした APK では「通知へのアクセス」「使用状況へのアクセス」がグレーアウトして許可できないことがあります。その場合は **アプリ情報 → 右上の︙ →「制限付き設定を許可」** を行ってから許可してください。

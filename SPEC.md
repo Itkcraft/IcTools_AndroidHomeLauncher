@@ -1,4 +1,4 @@
-# IcHomeLauncher 仕様書（v0.5.0）
+# IcHomeLauncher 仕様書（v0.6.0）
 
 > この文書は Claude Code に実装を依頼するための仕様書。
 > 作者表記は **IcTools**。実装は Claude Code、ビルドは GitHub Actions で行う。
@@ -12,7 +12,7 @@
 - パッケージ名：`com.ictools.ichomelauncher`
 - 種別：Android ホームアプリ（ランチャー）
 - コンセプト：壁紙の上に「ワイヤーフレーム風のフローティングパネル」を自由に配置し、ターミナルとジェスチャーで操作するランチャー
-- バージョン：`versionName = "0.5.0"`, `versionCode = 7`（0.x.x はベータ版）
+- バージョン：`versionName = "0.6.0"`, `versionCode = 8`（0.x.x はベータ版）
 
 ## 2. 技術スタック
 
@@ -174,6 +174,8 @@
 | `network` | Network | 26章（v0.3.0） |
 | `favorites` | Favorites | 27章（v0.3.0）、29章（v0.4.0） |
 | `pad` | Pad | 30章（v0.4.0） |
+| `sound` | Sound | 36章（v0.6.0） |
+| `help` | Help | 37章（v0.6.0） |
 
 - メモ以外は **各パネル 1 つずつ**。すでに開いている場合は最前面に出すだけ
 - メモは 1 メモ＝1 パネルで、複数同時に開ける（パネルIDは `memo:<メモID>`）
@@ -242,6 +244,7 @@ data class PanelState(
 | `media_play_pause` / `media_next` / `media_previous` | メディア操作（v0.4.0） |
 | `light_toggle` | ライトの切り替え（v0.4.0） |
 | `assist` | アシスタント起動（v0.5.0、34章） |
+| `open_sound` / `open_help` | 音量・明るさ／ヘルプパネルを開く（v0.6.0） |
 | `close_focused` | フォーカス中のパネルを閉じる |
 | `close_all` | すべてのパネルを閉じる |
 
@@ -290,6 +293,9 @@ data class PanelState(
 | `clock` / `calendar` / `status` / `network`（`net`）/ `favorites`（`favs`） | 各パネルを開く（v0.3.0） |
 | `camera` | カメラアプリを起動（v0.3.0） |
 | `assist` | アシスタントを起動（v0.5.0、34章） |
+| `calc` / `g` / `br` / `alias` / `unalias` / `timer` / `alarm` / `find` / `vol` / `bright` | 35章（v0.6.0） |
+| `sound` / `?` | 音量・明るさパネル／ヘルプパネルを開く（v0.6.0） |
+| `help [ページ番号｜コマンド名]` | ページ化したヘルプ（v0.6.0、37章） |
 | `light` / `light on` / `light off` | ライトの切り替え／点灯／消灯（v0.3.0） |
 | `fav` / `fav add <アプリ名>` / `fav rm <アプリ名>` | お気に入りの一覧／登録／解除（v0.3.0） |
 | `pad` | タッチパッドパネルを開く（v0.4.0） |
@@ -580,5 +586,35 @@ com.ictools.ichomelauncher
 
 ## 34. アシスタント起動（v0.5.0）
 - ジェスチャーのアクション `assist`（背景・タッチパッドの両方で選べる）と、ターミナルの `assist` コマンド
-- `Intent.ACTION_ASSIST` で端末に設定されたアシスタントを開く。失敗したら Gemini アプリ（`com.google.android.apps.bard`）を直接起動する。どちらも無ければターミナルに `assist: no assistant app found` と表示
+- Gemini アプリ（`com.google.android.apps.bard`）を直接起動する。入っていなければ `Intent.ACTION_ASSIST` を使う。どちらも無ければターミナルに `assist: no assistant app found` と表示
+- v0.5.0 では `ACTION_ASSIST` を先にしていたが、この Intent は Google アプリ（検索）が受け取ってしまうため v0.6.0 で順番を入れ替えた。電源ボタン長押しのアシスタント表示（オーバーレイ）は公開 API で呼び出せないため、Gemini アプリの画面が開く
 - パッケージ可視性のため `<queries>` に `ACTION_ASSIST` と Gemini のパッケージを追加
+
+## 35. ターミナルのツールコマンド（v0.6.0）
+
+| コマンド | 動作 |
+|---|---|
+| `calc <式>` | 電卓。`+ - * / % ^`、括弧、単項マイナス、小数、`× ÷`、`sqrt abs sin cos tan`（度）`log`（常用）`ln`、`pi e`。結果の行をタップすると入力欄に入る |
+| `g <語>` | Google の検索結果を既定のブラウザで開く |
+| `br <URL｜語>` | Brave（`com.brave.browser`）で開く。URL ならそのまま、それ以外は Brave に設定された検索エンジンで検索（`ACTION_WEB_SEARCH`。非対応なら Brave Search の URL）。未インストールなら理由を表示 |
+| `alias` / `alias <名前>=<文字列>` / `alias <名前>` / `unalias <名前>` | 短縮コマンドの一覧／登録／表示／削除。1 語目が名前と一致したら文字列に置き換えて実行（1 段のみ）。名前は a-z 0-9 _ -、既存のコマンド名は不可。DataStore に保存 |
+| `timer <時間>` | 時計アプリにタイマーを設定（`AlarmClock.ACTION_SET_TIMER`、画面は出さない）。`3m` / `90s` / `1h30m` / `1:30`（分:秒）/ `5`（分）。最大 24 時間 |
+| `alarm <HH:MM> [ラベル]` | 時計アプリにアラームを設定（`ACTION_SET_ALARM`、画面は出さない）。`7:00` / `0730` |
+| `find <名前>` | 現在のディレクトリ以下を名前の部分一致（大文字小文字無視）で検索。隠しファイル・`Android/data`・`obb` は除外、100 件で打ち切り。結果をタップするとファイルは開き、ディレクトリは移動 |
+| `vol` / `vol <0-100｜up｜down｜mute>` / `vol <media｜ring｜notif｜alarm> <0-100｜up｜down>` | 音量の一覧／変更（無指定はメディア） |
+| `bright` / `bright <0-100>` / `bright auto` | 明るさの表示／変更（手動にすると自動調整は OFF）／自動調整 ON |
+
+- timer / alarm は時計アプリが対応している場合のみ（`SET_ALARM` は通常の権限）。非対応なら理由を表示
+- 音量：マナーモード（おやすみ時間）中は着信・通知の音量を変えられないことがあり、その場合は理由を表示
+- 明るさ：「システム設定の変更」（`WRITE_SETTINGS`）の許可が必要。未許可なら理由とタップできる許可行を表示
+- 補完：短縮コマンド名、`vol` / `bright` / `help` / `unalias` の引数も補完する
+
+## 36. 音量・明るさパネル（Sound、v0.6.0）
+- メディア・着信音・通知・アラームの音量スライダー、メディアのミュート切り替え
+- 明るさのスライダーと自動調整の ON/OFF（「システム設定の変更」が必要。未許可時は理由と許可ボタン）
+- 表示中かつ前面の間は 1 秒ごとに現在値を読み直す（本体ボタンでの変更も反映。スライダー操作中は読み直さない）
+
+## 37. ヘルプ（v0.6.0）
+- ターミナルの `help` はページ表示：apps / panels / tools / files / memo / terminal の 6 ページ。`help` で 1 ページ目と目次、`help <n>` でそのページ、`help <コマンド名>` で説明と例
+- ヘルプパネル（`?` で開く）：カテゴリのタブと検索欄。コマンドをタップするとターミナルを開いて入力欄に入れる（実行はしない）
+- ターミナルとパネルの内容は同じデータ（`CommandHelp`）から作る

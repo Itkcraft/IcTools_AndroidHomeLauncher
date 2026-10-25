@@ -51,6 +51,16 @@ fun TerminalPanel(session: TerminalSession) {
     val listState = rememberLazyListState()
     val lines = session.lines
 
+    // ヘルプパネルや calc の結果から渡された文字列を入力欄に入れる
+    val pending = session.pendingInput.value
+    LaunchedEffect(pending) {
+        if (pending != null) {
+            input = TextFieldValue(pending, selection = TextRange(pending.length))
+            historyIndex = -1
+            session.pendingInput.value = null
+        }
+    }
+
     // 補完候補（入力が変わるたびに計算）
     val suggestion = remember(input.text, lines.size) { session.suggest(input.text) }
 

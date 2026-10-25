@@ -1,5 +1,20 @@
 # Changelog
 
+## v0.6.0（versionCode 8）
+
+- 修正：`assist` でアシスタントではなく Google アプリが開く（ACTION_ASSIST を Google アプリが受け取るため）。Gemini アプリを先に起動するよう変更
+- ターミナルにコマンドを追加
+  - `calc`（電卓）、`g`（Google 検索）、`br`（Brave で開く／検索）
+  - `alias` / `unalias`（自分用の短縮コマンド）
+  - `timer` / `alarm`（時計アプリに設定）
+  - `find`（ファイル検索）
+  - `vol` / `bright`（音量・明るさ）
+  - `sound` / `?`（パネルを開く）
+- `help` をページ化（`help <n>` / `help <コマンド名>`）
+- 新規パネル：音量・明るさ（Sound）、ヘルプ（Help）
+- ジェスチャーのアクションに `open_sound` / `open_help` を追加
+- 権限を追加：システム設定の変更（明るさ）、アラームの設定（通常の権限）
+
 ## v0.5.0（versionCode 7）
 
 - アシスタント起動：ジェスチャーのアクションに `assist` を追加（背景・タッチパッドの両方）、ターミナルに `assist` コマンドを追加

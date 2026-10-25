@@ -22,6 +22,12 @@
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-permission android:name="android.permission.READ_PHONE_STATE" />
+    <!-- timer / alarm：時計アプリにタイマー・アラームを設定してもらう（通常の権限） -->
+    <uses-permission android:name="com.android.alarm.permission.SET_ALARM" />
+    <!-- 画面の明るさの変更（「システム設定の変更」の許可が必要） -->
+    <uses-permission
+        android:name="android.permission.WRITE_SETTINGS"
+        tools:ignore="ProtectedPermissions" />
     <!-- アプリのアンインストール画面を開く（実際の削除は OS の確認ダイアログで行う） -->
     <uses-permission android:name="android.permission.REQUEST_DELETE_PACKAGES" />
 
@@ -41,6 +47,8 @@
             <action android:name="android.intent.action.ASSIST" />
         </intent>
         <package android:name="com.google.android.apps.bard" />
+        <!-- br：Brave -->
+        <package android:name="com.brave.browser" />
         <!-- camera コマンド -->
         <intent>
             <action android:name="android.media.action.STILL_IMAGE_CAMERA" />

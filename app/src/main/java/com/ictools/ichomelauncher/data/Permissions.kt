@@ -23,7 +23,8 @@ data class PermissionState(
     val usageStats: Boolean = false,         // 使用状況へのアクセス（稼働状況の最近使ったアプリ）
     val fineLocation: Boolean = false,       // 正確な位置情報（Wi-Fi の SSID）
     val locationEnabled: Boolean = false,    // 端末の位置情報サービスが ON か（SSID に必要）
-    val phoneState: Boolean = false          // 電話の状態（モバイル回線種別）
+    val phoneState: Boolean = false,         // 電話の状態（モバイル回線種別）
+    val writeSettings: Boolean = false       // システム設定の変更（画面の明るさ）
 )
 
 /** 権限の確認と、許可用の設定画面を開くための Intent */
@@ -40,7 +41,8 @@ object Permissions {
         usageStats = hasUsageStats(context),
         fineLocation = granted(context, Manifest.permission.ACCESS_FINE_LOCATION),
         locationEnabled = runCatching { context.getSystemService(LocationManager::class.java).isLocationEnabled }.getOrDefault(false),
-        phoneState = granted(context, Manifest.permission.READ_PHONE_STATE)
+        phoneState = granted(context, Manifest.permission.READ_PHONE_STATE),
+        writeSettings = Settings.System.canWrite(context)
     )
 
     private fun granted(context: Context, permission: String) =
