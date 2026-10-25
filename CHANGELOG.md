@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.6.1（versionCode 9）
+
+- アシスタントの起動方法を選べるように変更（Gemini のアシスタント表示を開くため）
+  - 候補：`voice`（VOICE_COMMAND）/ `voiceassist`（VOICE_ASSIST）/ `assist`（ASSIST）/ `app`（Gemini アプリ）/ `auto`（順に試す・既定）
+  - ターミナル：`assist list` / `assist <方法>` / `assist set <方法>`、起動時に使った方法を表示
+  - 設定パネルに「アシスタントの起動方法」を追加
+
 ## v0.6.0（versionCode 8）
 
 - 修正：`assist` でアシスタントではなく Google アプリが開く（ACTION_ASSIST を Google アプリが受け取るため）。Gemini アプリを先に起動するよう変更

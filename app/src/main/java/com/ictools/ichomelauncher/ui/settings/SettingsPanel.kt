@@ -35,6 +35,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.ictools.ichomelauncher.BuildConfig
 import com.ictools.ichomelauncher.data.Appearance
+import com.ictools.ichomelauncher.data.AssistMethod
 import com.ictools.ichomelauncher.data.LauncherSettings
 import com.ictools.ichomelauncher.data.MediaSettings
 import com.ictools.ichomelauncher.data.PanelShapeType
@@ -67,7 +68,8 @@ class SettingsActions(
     val setMediaSettings: (MediaSettings) -> Unit,
     val requestAllFiles: () -> Unit,
     val requestUsageAccess: () -> Unit,
-    val requestWriteSettings: () -> Unit
+    val requestWriteSettings: () -> Unit,
+    val setAssistMethod: (AssistMethod) -> Unit
 )
 
 /** 設定パネルの中身：背景／ジェスチャー／パネル／情報 */
@@ -140,6 +142,18 @@ fun SettingsPanel(settings: LauncherSettings, blurAvailable: Boolean, permission
         }
         Spacer(Modifier.height(6.dp))
         WireButton("初期値に戻す", onClick = actions.resetGestures)
+
+        Spacer(Modifier.height(8.dp))
+        Text("アシスタントの起動方法（assist）")
+        OptionDropdown(
+            current = settings.assistMethod.id,
+            options = AssistMethod.entries.map { "${it.id}  ${it.label}" to it },
+            onSelect = actions.setAssistMethod
+        )
+        Text(
+            "Gemini のアシスタント表示を直接呼ぶ公開 API は無いため、端末で効く方法を選んでください（ターミナルの assist <方法> で試せます）",
+            color = IhlColors.TextDim, fontSize = 10.sp, lineHeight = 13.sp
+        )
 
         // ---- タッチパッド ----
         SectionHeader("タッチパッド")

@@ -1,4 +1,4 @@
-# IcHomeLauncher 仕様書（v0.6.0）
+# IcHomeLauncher 仕様書（v0.6.1）
 
 > この文書は Claude Code に実装を依頼するための仕様書。
 > 作者表記は **IcTools**。実装は Claude Code、ビルドは GitHub Actions で行う。
@@ -12,7 +12,7 @@
 - パッケージ名：`com.ictools.ichomelauncher`
 - 種別：Android ホームアプリ（ランチャー）
 - コンセプト：壁紙の上に「ワイヤーフレーム風のフローティングパネル」を自由に配置し、ターミナルとジェスチャーで操作するランチャー
-- バージョン：`versionName = "0.6.0"`, `versionCode = 8`（0.x.x はベータ版）
+- バージョン：`versionName = "0.6.1"`, `versionCode = 9`（0.x.x はベータ版）
 
 ## 2. 技術スタック
 
@@ -618,3 +618,17 @@ com.ictools.ichomelauncher
 - ターミナルの `help` はページ表示：apps / panels / tools / files / memo / terminal の 6 ページ。`help` で 1 ページ目と目次、`help <n>` でそのページ、`help <コマンド名>` で説明と例
 - ヘルプパネル（`?` で開く）：カテゴリのタブと検索欄。コマンドをタップするとターミナルを開いて入力欄に入れる（実行はしない）
 - ターミナルとパネルの内容は同じデータ（`CommandHelp`）から作る
+
+### 34.1 起動方法の選択（v0.6.1）
+- Gemini のアシスタント表示（電源ボタン長押しで出るもの）を他アプリから呼ぶ公開 API は無い。Google アプリが受け取る可能性のある Intent を候補として用意し、実機で効く方法を選べるようにする
+
+| 方法（id） | 内容 |
+|---|---|
+| `auto` | 既定。`voice` → `voiceassist` → `app` → `assist` の順に、起動できたものを使う |
+| `voice` | `Intent.ACTION_VOICE_COMMAND` |
+| `voiceassist` | `android.intent.action.VOICE_ASSIST` |
+| `assist` | `Intent.ACTION_ASSIST`（v0.5.0 では Google アプリの検索が開いた） |
+| `app` | Gemini アプリ（`com.google.android.apps.bard`）を直接起動 |
+
+- ターミナル：`assist`（設定の方法）、`assist <方法>`（その方法で試す）、`assist set <方法>`（保存）、`assist list`（一覧。`*` が現在の設定）。起動したら使った方法を表示する
+- 設定パネルの「ジェスチャー」欄に「アシスタントの起動方法」のドロップダウン

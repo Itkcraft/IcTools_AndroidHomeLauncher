@@ -9,6 +9,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.snapshots.SnapshotStateList
 import com.ictools.ichomelauncher.BuildConfig
 import com.ictools.ichomelauncher.data.AppEntry
+import com.ictools.ichomelauncher.data.AssistMethod
 import com.ictools.ichomelauncher.data.Memo
 import com.ictools.ichomelauncher.data.NEED_PERMISSION
 import com.ictools.ichomelauncher.data.PanelIds
@@ -39,7 +40,10 @@ interface TerminalHost {
     fun addFavorite(app: AppEntry)
     fun removeFavorite(app: AppEntry)
     fun openCamera(): Boolean
-    fun launchAssist(): Boolean
+    /** アシスタントを起動し、使えた方法を返す（[method] が null なら設定の方法） */
+    fun launchAssist(method: AssistMethod?): AssistMethod?
+    fun assistMethod(): AssistMethod
+    fun setAssistMethod(method: AssistMethod)
     fun torchOn(): Boolean
     fun setTorch(on: Boolean): String?
     fun startActivity(intent: Intent): Boolean
@@ -197,10 +201,7 @@ class TerminalSession(
                 "memo" -> { host.newMemo(""); return }
                 "memos" -> { listMemos(); return }
                 "camera" -> { if (!host.openCamera()) print("camera: no camera app found"); return }
-                "assist" -> {
-                    print(if (host.launchAssist()) "Opening assistant" else "assist: no assistant app found")
-                    return
-                }
+                "assist" -> { runAssist(null); return }
                 "light" -> { toggleLight(!host.torchOn()); return }
                 "pwd" -> { fileCommand { print(files.pwd()) }; return }
                 "ls" -> { fileCommand { print(*files.ls(null, false).toTypedArray()) }; return }
@@ -224,6 +225,7 @@ class TerminalSession(
             "memos" -> memosCommand(argument)
             "fav" -> favCommand(args)
             "help" -> helpCommand(argument)
+            "assist" -> assistCommand(args)
             "calc" -> calc(argument)
             "g" -> googleSearch(argument)
             "br" -> brave(argument)
@@ -314,6 +316,40 @@ class TerminalSession(
             print(e.usage)
             print("  ${e.description}")
             e.example?.let { print("  e.g. $it") }
+        }
+    }
+
+    // ---- アシスタント ----
+
+    private fun runAssist(method: AssistMethod?) {
+        val used = host.launchAssist(method)
+        print(if (used != null) "Opening assistant (${used.id})" else "assist: could not start (${(method ?: host.assistMethod()).id})")
+    }
+
+    /** assist <方法> で試す、assist set <方法> で保存、assist list で一覧 */
+    private fun assistCommand(args: List<String>) {
+        val sub = args.first().lowercase()
+        when {
+            sub == "list" -> {
+                val current = host.assistMethod()
+                AssistMethod.entries.forEach { m ->
+                    print((if (m == current) "* " else "  ") + m.id.padEnd(12) + m.label)
+                }
+                print("try: assist <method> / save: assist set <method>")
+            }
+            sub == "set" -> {
+                val m = AssistMethod.fromId(args.getOrNull(1))
+                if (m == null) {
+                    print("usage: assist set <auto|voice|voiceassist|assist|app>")
+                } else {
+                    host.setAssistMethod(m)
+                    print("assist: default method = ${m.id}")
+                }
+            }
+            else -> {
+                val m = AssistMethod.fromId(sub)
+                if (m == null) print("usage: assist [list | <method> | set <method>]") else runAssist(m)
+            }
         }
     }
 
@@ -762,6 +798,8 @@ class TerminalSession(
                 .firstOrNull { it.startsWith(rest, ignoreCase = true) && it.length > rest.length }?.let { head + it }
             "bright" -> listOf("auto", "manual").firstOrNull { it.startsWith(rest, ignoreCase = true) && it.length > rest.length }?.let { head + it }
             "help" -> (CommandHelp.SECTIONS.flatMap { it.entries.flatMap { e -> e.names } }.distinct())
+                .firstOrNull { it.startsWith(rest, ignoreCase = true) && it.length > rest.length }?.let { head + it }
+            "assist" -> (listOf("list", "set") + AssistMethod.entries.map { it.id })
                 .firstOrNull { it.startsWith(rest, ignoreCase = true) && it.length > rest.length }?.let { head + it }
             "light" -> listOf("on", "off").firstOrNull { it.startsWith(rest, ignoreCase = true) && it.length > rest.length }?.let { head + it }
             "memos" -> if ("rm".startsWith(rest, ignoreCase = true) && rest.length < 2) head + "rm" else null

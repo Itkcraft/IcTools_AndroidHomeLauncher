@@ -70,7 +70,10 @@ object CommandHelp {
                 e("bright [0-100|auto]", "画面の明るさ", "bright", insert = "bright "),
                 e("light [on|off]", "ライト", "light"),
                 e("camera", "カメラ", "camera"),
-                e("assist", "アシスタント（Gemini）", "assist")
+                e("assist", "アシスタント（Gemini）を起動", "assist"),
+                e("assist list", "起動方法の一覧（* が現在の設定）", "assist", insert = "assist list"),
+                e("assist <method>", "その方法で試す（auto voice voiceassist assist app）", "assist", insert = "assist ", example = "assist voice"),
+                e("assist set <method>", "起動方法を保存", "assist", insert = "assist set ")
             )
         ),
         HelpSection(

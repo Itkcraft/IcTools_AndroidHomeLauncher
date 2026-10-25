@@ -61,12 +61,30 @@ data class MediaSettings(
     val visualizerMode: VisualizerMode = VisualizerMode.WAVEFORM
 )
 
+/**
+ * アシスタントの起動方法。
+ * 電源ボタン長押しのアシスタント表示（Gemini のオーバーレイ）を他アプリから呼ぶ公開 API は無いため、
+ * Google アプリが受け取る可能性のある Intent を候補として用意し、実機で効くものを選んでもらう。
+ */
+enum class AssistMethod(val id: String, val label: String) {
+    AUTO("auto", "自動（voice → voiceassist → app）"),
+    VOICE_COMMAND("voice", "音声コマンド（VOICE_COMMAND）"),
+    VOICE_ASSIST("voiceassist", "音声アシスト（VOICE_ASSIST）"),
+    ASSIST("assist", "アシスト（ASSIST）"),
+    GEMINI_APP("app", "Gemini アプリ");
+
+    companion object {
+        fun fromId(id: String?): AssistMethod? = entries.firstOrNull { it.id == id?.lowercase() }
+    }
+}
+
 /** 設定全体 */
 data class LauncherSettings(
     val background: BackgroundSettings = BackgroundSettings(),
     val gestures: Map<GestureType, GestureAction> = GestureType.defaultMapping(),
     val padGestures: Map<GestureType, GestureAction> = GestureType.defaultPadMapping(),
     val favoritesGrid: Boolean = true,
+    val assistMethod: AssistMethod = AssistMethod.AUTO,
     val scheduleDays: Int = DEFAULT_SCHEDULE_DAYS,
     val appearance: Appearance = Appearance(),
     val media: MediaSettings = MediaSettings()
@@ -89,6 +107,7 @@ class SettingsRepository(private val context: Context) {
     private val keyGestures = stringPreferencesKey("gesture_map")
     private val keyPadGestures = stringPreferencesKey("pad_gesture_map")
     private val keyFavoritesGrid = booleanPreferencesKey("favorites_grid")
+    private val keyAssistMethod = stringPreferencesKey("assist_method")
     private val keyScheduleDays = intPreferencesKey("schedule_days")
     private val keyWireColor = intPreferencesKey("wire_color")
     private val keyPanelColor = intPreferencesKey("panel_color")
@@ -128,6 +147,7 @@ class SettingsRepository(private val context: Context) {
             gestures = decodeGestures(this[keyGestures], GestureType.defaultMapping()),
             padGestures = decodeGestures(this[keyPadGestures], GestureType.defaultPadMapping()),
             favoritesGrid = this[keyFavoritesGrid] ?: true,
+            assistMethod = AssistMethod.fromId(this[keyAssistMethod]) ?: AssistMethod.AUTO,
             scheduleDays = days,
             appearance = appearance,
             media = media
@@ -184,6 +204,10 @@ class SettingsRepository(private val context: Context) {
     suspend fun setPadGestures(map: Map<GestureType, GestureAction>) {
         val raw = json.encodeToString(map.entries.associate { it.key.id to it.value.id })
         context.ihlDataStore.edit { it[keyPadGestures] = raw }
+    }
+
+    suspend fun setAssistMethod(method: AssistMethod) {
+        context.ihlDataStore.edit { it[keyAssistMethod] = method.id }
     }
 
     suspend fun setFavoritesGrid(grid: Boolean) {

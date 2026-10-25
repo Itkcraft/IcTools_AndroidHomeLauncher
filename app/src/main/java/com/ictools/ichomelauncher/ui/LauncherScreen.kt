@@ -183,7 +183,8 @@ private fun PanelContent(id: String, memo: Memo?, vm: LauncherViewModel, onOpenH
                     setMediaSettings = { vm.setMediaSettings(it) },
                     requestAllFiles = vm::requestAllFilesAccess,
                     requestUsageAccess = vm::requestUsageAccess,
-                    requestWriteSettings = vm::requestWriteSettings
+                    requestWriteSettings = vm::requestWriteSettings,
+                    setAssistMethod = { vm.setAssistMethod(it) }
                 )
             )
         }

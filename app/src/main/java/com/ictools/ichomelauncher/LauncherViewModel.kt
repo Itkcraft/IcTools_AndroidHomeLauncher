@@ -25,6 +25,7 @@ import com.ictools.ichomelauncher.data.PendingIntents
 import com.ictools.ichomelauncher.data.Permissions
 import com.ictools.ichomelauncher.data.PermissionState
 import com.ictools.ichomelauncher.data.Appearance
+import com.ictools.ichomelauncher.data.AssistMethod
 import com.ictools.ichomelauncher.data.AudioEffects
 import com.ictools.ichomelauncher.data.EqState
 import com.ictools.ichomelauncher.data.AliasRepository
@@ -61,8 +62,11 @@ import java.util.UUID
 import kotlin.math.max
 import kotlin.math.min
 
-/** Gemini アプリのパッケージ名（アシスタント起動のフォールバック先） */
+/** Gemini アプリのパッケージ名（アシスタント起動の候補） */
 const val GEMINI_PACKAGE = "com.google.android.apps.bard"
+
+/** 音声アシストの Intent アクション */
+const val ACTION_VOICE_ASSIST = "android.intent.action.VOICE_ASSIST"
 
 /** インストールから何日間「新しいアプリ」として表示するか */
 const val NEW_APP_DAYS = 7
@@ -197,7 +201,12 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         override fun addFavorite(app: AppEntry) = this@LauncherViewModel.addFavorite(app)
         override fun removeFavorite(app: AppEntry) = this@LauncherViewModel.removeFavorite(app)
         override fun openCamera() = this@LauncherViewModel.openCamera()
-        override fun launchAssist() = this@LauncherViewModel.launchAssist()
+        override fun launchAssist(method: AssistMethod?) =
+            if (method == null) this@LauncherViewModel.launchAssist() else this@LauncherViewModel.launchAssist(method)
+        override fun assistMethod() = settings.value.assistMethod
+        override fun setAssistMethod(method: AssistMethod) {
+            this@LauncherViewModel.setAssistMethod(method)
+        }
         override fun torchOn() = torch.isOn.value
         override fun setTorch(on: Boolean) = torch.set(on)
         override fun startActivity(intent: Intent) = startActivitySafely(intent)
@@ -534,7 +543,7 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
             GestureAction.MEDIA_NEXT -> mediaRepository.next()
             GestureAction.MEDIA_PREVIOUS -> mediaRepository.previous()
             GestureAction.LIGHT_TOGGLE -> { torch.set(!torch.isOn.value) }
-            GestureAction.ASSIST -> launchAssist()
+            GestureAction.ASSIST -> { launchAssist() }
             GestureAction.NEW_MEMO -> newMemo()
             GestureAction.CLOSE_FOCUSED -> closeFocused()
             GestureAction.CLOSE_ALL -> closeAll()
@@ -665,16 +674,29 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     fun openCamera(): Boolean = startActivitySafely(Intent(MediaStore.INTENT_ACTION_STILL_IMAGE_CAMERA))
 
     /**
-     * アシスタントを起動する。
-     * ACTION_ASSIST は Google アプリ（検索）が受け取ってしまい、電源ボタン長押しのアシスタント表示は
-     * 公開 API で呼べないため、Gemini アプリを直接起動する。入っていなければ ACTION_ASSIST に頼る。
+     * アシスタントを起動し、実際に使えた方法を返す（どれも失敗したら null）。
+     * [method] を省略すると設定の方法を使う。AUTO は VOICE_COMMAND → VOICE_ASSIST → Gemini アプリ → ASSIST の順に試す。
+     * 電源ボタン長押しのアシスタント表示を呼ぶ公開 API は無いため、どれが Gemini のオーバーレイになるかは端末次第。
      */
-    fun launchAssist(): Boolean {
-        app.packageManager.getLaunchIntentForPackage(GEMINI_PACKAGE)?.let { gemini ->
-            if (startActivitySafely(gemini)) return true
+    fun launchAssist(method: AssistMethod = settings.value.assistMethod): AssistMethod? {
+        val order = if (method == AssistMethod.AUTO) {
+            listOf(AssistMethod.VOICE_COMMAND, AssistMethod.VOICE_ASSIST, AssistMethod.GEMINI_APP, AssistMethod.ASSIST)
+        } else {
+            listOf(method)
         }
-        return startActivitySafely(Intent(Intent.ACTION_ASSIST))
+        return order.firstOrNull { tryAssist(it) }
     }
+
+    private fun tryAssist(method: AssistMethod): Boolean = when (method) {
+        AssistMethod.VOICE_COMMAND -> startActivitySafely(Intent(Intent.ACTION_VOICE_COMMAND))
+        AssistMethod.VOICE_ASSIST -> startActivitySafely(Intent(ACTION_VOICE_ASSIST))
+        AssistMethod.ASSIST -> startActivitySafely(Intent(Intent.ACTION_ASSIST))
+        AssistMethod.GEMINI_APP -> app.packageManager.getLaunchIntentForPackage(GEMINI_PACKAGE)
+            ?.let { startActivitySafely(it) } ?: false
+        AssistMethod.AUTO -> false
+    }
+
+    fun setAssistMethod(method: AssistMethod) = viewModelScope.launch { settingsRepository.setAssistMethod(method) }
 
     /** 「システム設定の変更」（明るさ）の許可画面を開く */
     fun requestWriteSettings() {
