@@ -91,8 +91,8 @@ class TerminalSession(
         /** Brave のパッケージ名（br コマンド） */
         private const val BRAVE_PACKAGE = "com.brave.browser"
 
-        /** alias の名前に使える文字 */
-        private val ALIAS_NAME = Regex("^[a-z0-9_-]+$")
+        /** alias の名前に使える文字（日本語などの文字・数字・_ -） */
+        private val ALIAS_NAME = Regex("^[\\p{L}\\p{N}_-]+$")
     }
 
     /** 出力ログ（新しい行が末尾） */
@@ -142,7 +142,7 @@ class TerminalSession(
 
     /** 1 行分の入力を実行する */
     fun execute(rawInput: String) {
-        val input = rawInput.trim()
+        val input = rawInput.replace('\u3000', ' ').trim()
         print("$PROMPT $input".trimEnd())
 
         // 確認待ちなら y/N の返答として扱う
@@ -177,8 +177,8 @@ class TerminalSession(
                 "vol" -> { showVolumes(); return }
                 "bright" -> { showBrightness(); return }
                 "calc" -> { print("usage: calc <expression>  e.g. calc 12*8"); return }
-                "g" -> { print("usage: g <words>"); return }
-                "br" -> { print("usage: br <url|words>"); return }
+                "g" -> { openGoogle(); return }
+                "br" -> { launchBrave(); return }
                 "timer" -> { print("usage: timer <time>  e.g. timer 3m / 1h30m / 90s"); return }
                 "alarm" -> { print("usage: alarm <HH:MM> [label]"); return }
                 "find" -> { print("usage: find <name>"); return }
@@ -365,6 +365,18 @@ class TerminalSession(
         }
     }
 
+    /** 引数なしの g：Google のトップページをブラウザで開く */
+    private fun openGoogle() {
+        print("Opening Google")
+        if (!host.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://www.google.com/")))) print("g: no browser found")
+    }
+
+    /** 引数なしの br：Brave を起動する */
+    private fun launchBrave() {
+        val intent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER).setPackage(BRAVE_PACKAGE)
+        print(if (host.startActivity(intent)) "Opening Brave" else "br: Brave is not installed")
+    }
+
     /** Google の検索結果をブラウザで開く */
     private fun googleSearch(words: String) {
         val uri = Uri.parse("https://www.google.com/search?q=" + Uri.encode(words))
@@ -417,7 +429,8 @@ class TerminalSession(
     }
 
     private fun aliasCommand(argument: String) {
-        val eq = argument.indexOf('=')
+        // 日本語入力の全角＝も区切りとして扱う
+        val eq = argument.indexOfFirst { it == '=' || it == '＝' }
         if (eq < 0) {
             // alias <name>：1 件表示
             val v = host.aliases()[argument.lowercase()]
@@ -427,7 +440,7 @@ class TerminalSession(
         val name = argument.substring(0, eq).trim().lowercase()
         val value = argument.substring(eq + 1).trim().removeSurrounding("\"").removeSurrounding("'")
         when {
-            !ALIAS_NAME.matches(name) -> print("alias: use a-z 0-9 _ - for the name")
+            !ALIAS_NAME.matches(name) -> print("alias: the name cannot contain spaces or symbols")
             name in COMMANDS -> print("alias: '$name' is a built-in command")
             value.isEmpty() -> print("usage: alias <name>=<text>")
             else -> {

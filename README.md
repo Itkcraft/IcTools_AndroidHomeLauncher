@@ -4,7 +4,7 @@
 
 - ホーム画面上の表示名：**IHL**
 - パッケージ名：`com.ictools.ichomelauncher`
-- バージョン：**v0.6.1**（ベータ版）
+- バージョン：**v0.6.2**（ベータ版）
 - 作者：IcTools
 - 対応 OS：Android 12（API 31）以降／縦画面固定
 
@@ -60,9 +60,9 @@
 | `assist` | アシスタント（Gemini）を起動 |
 | `assist list` / `assist <方法>` / `assist set <方法>` | 起動方法の一覧／試す／保存（`auto` `voice` `voiceassist` `assist` `app`） |
 | `calc <式>` | 電卓（例：`calc 12*8`） |
-| `g <語>` | Google で検索 |
-| `br <URL｜語>` | Brave で開く／検索 |
-| `alias dc=Discord` / `alias` / `unalias dc` | 自分用の短縮コマンドの登録／一覧／削除 |
+| `g [語]` | Google で検索（語が無ければ Google を開く） |
+| `br [URL｜語]` | Brave で開く／検索（無ければ Brave を起動） |
+| `alias dc=Discord` / `alias 地図=マップ` / `alias` / `unalias dc` | 自分用の短縮コマンドの登録（日本語可）／一覧／削除 |
 | `timer 3m` / `alarm 7:00` | 時計アプリにタイマー・アラームを設定 |
 | `find <名前>` | ファイルを名前で検索 |
 | `vol` / `vol 50` / `vol ring 30` / `vol up` | 音量 |

@@ -34,7 +34,7 @@ object CommandHelp {
                 e("uninstall <app>", "アンインストール（OS の確認あり）", "uninstall", insert = "uninstall "),
                 e("info <app>", "アプリ情報を開く", "info", insert = "info "),
                 e("alias", "短縮コマンドの一覧", "alias"),
-                e("alias <name>=<text>", "短縮コマンドを登録（1語目を置き換え）", "alias", insert = "alias ", example = "alias dc=Discord"),
+                e("alias <name>=<text>", "短縮コマンドを登録（1語目を置き換え。名前・中身とも日本語可）", "alias", insert = "alias ", example = "alias dc=Discord / alias 地図=マップ"),
                 e("unalias <name>", "短縮コマンドを削除", "unalias", insert = "unalias ")
             )
         ),
@@ -60,8 +60,8 @@ object CommandHelp {
             "tools",
             listOf(
                 e("calc <expr>", "電卓（+ - * / % ^ () sqrt sin cos tan log ln pi）", "calc", insert = "calc ", example = "calc 12*8"),
-                e("g <words>", "Google で検索（ブラウザ）", "g", insert = "g "),
-                e("br <url|words>", "Brave で開く／検索", "br", insert = "br "),
+                e("g [words]", "Google で検索（ブラウザ）。語が無ければ Google を開く", "g", insert = "g "),
+                e("br [url|words]", "Brave で開く／検索。無ければ Brave を起動", "br", insert = "br "),
                 e("timer <time>", "タイマー（時計アプリ）", "timer", insert = "timer ", example = "timer 3m / timer 1h30m / timer 90s"),
                 e("alarm <HH:MM> [label]", "アラーム（時計アプリ）", "alarm", insert = "alarm ", example = "alarm 7:00 起床"),
                 e("vol", "音量の一覧", "vol"),
