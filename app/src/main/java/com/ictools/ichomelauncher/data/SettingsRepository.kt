@@ -85,12 +85,19 @@ data class LauncherSettings(
     val padGestures: Map<GestureType, GestureAction> = GestureType.defaultPadMapping(),
     val favoritesGrid: Boolean = true,
     val assistMethod: AssistMethod = AssistMethod.AUTO,
+    val snapEnabled: Boolean = false,             // グリッド（スナップ）モード
+    val gridSizeDp: Int = DEFAULT_GRID_SIZE,      // グリッドの間隔（dp）
+    val rotationEnabled: Boolean = true,          // 横画面に対応する（OS の自動回転に従う）
     val scheduleDays: Int = DEFAULT_SCHEDULE_DAYS,
     val appearance: Appearance = Appearance(),
     val media: MediaSettings = MediaSettings()
 ) {
     companion object {
         const val DEFAULT_SCHEDULE_DAYS = 7
+        const val DEFAULT_GRID_SIZE = 16
+
+        /** グリッドの間隔の選択肢（dp） */
+        val GRID_SIZE_OPTIONS = listOf(8, 12, 16, 24, 32)
 
         /** スケジュールの表示日数の選択肢 */
         val SCHEDULE_DAY_OPTIONS = listOf(1, 3, 7, 14)
@@ -108,6 +115,9 @@ class SettingsRepository(private val context: Context) {
     private val keyPadGestures = stringPreferencesKey("pad_gesture_map")
     private val keyFavoritesGrid = booleanPreferencesKey("favorites_grid")
     private val keyAssistMethod = stringPreferencesKey("assist_method")
+    private val keySnap = booleanPreferencesKey("snap_enabled")
+    private val keyGridSize = intPreferencesKey("grid_size_dp")
+    private val keyRotation = booleanPreferencesKey("rotation_enabled")
     private val keyScheduleDays = intPreferencesKey("schedule_days")
     private val keyWireColor = intPreferencesKey("wire_color")
     private val keyPanelColor = intPreferencesKey("panel_color")
@@ -148,6 +158,9 @@ class SettingsRepository(private val context: Context) {
             padGestures = decodeGestures(this[keyPadGestures], GestureType.defaultPadMapping()),
             favoritesGrid = this[keyFavoritesGrid] ?: true,
             assistMethod = AssistMethod.fromId(this[keyAssistMethod]) ?: AssistMethod.AUTO,
+            snapEnabled = this[keySnap] ?: false,
+            gridSizeDp = this[keyGridSize]?.takeIf { it in LauncherSettings.GRID_SIZE_OPTIONS } ?: LauncherSettings.DEFAULT_GRID_SIZE,
+            rotationEnabled = this[keyRotation] ?: true,
             scheduleDays = days,
             appearance = appearance,
             media = media
@@ -204,6 +217,18 @@ class SettingsRepository(private val context: Context) {
     suspend fun setPadGestures(map: Map<GestureType, GestureAction>) {
         val raw = json.encodeToString(map.entries.associate { it.key.id to it.value.id })
         context.ihlDataStore.edit { it[keyPadGestures] = raw }
+    }
+
+    suspend fun setSnap(enabled: Boolean) {
+        context.ihlDataStore.edit { it[keySnap] = enabled }
+    }
+
+    suspend fun setGridSize(dp: Int) {
+        context.ihlDataStore.edit { it[keyGridSize] = dp }
+    }
+
+    suspend fun setRotationEnabled(enabled: Boolean) {
+        context.ihlDataStore.edit { it[keyRotation] = enabled }
     }
 
     suspend fun setAssistMethod(method: AssistMethod) {

@@ -69,7 +69,11 @@ class SettingsActions(
     val requestAllFiles: () -> Unit,
     val requestUsageAccess: () -> Unit,
     val requestWriteSettings: () -> Unit,
-    val setAssistMethod: (AssistMethod) -> Unit
+    val setAssistMethod: (AssistMethod) -> Unit,
+    val setSnap: (Boolean) -> Unit,
+    val setGridSize: (Int) -> Unit,
+    val alignAllToGrid: () -> Unit,
+    val setRotationEnabled: (Boolean) -> Unit
 )
 
 /** 設定パネルの中身：背景／ジェスチャー／パネル／情報 */
@@ -166,7 +170,30 @@ fun SettingsPanel(settings: LauncherSettings, blurAvailable: Boolean, permission
 
         // ---- パネル ----
         SectionHeader("パネル")
-        WireButton("パネル配置をリセット", onClick = actions.resetLayout)
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text("グリッド（スナップ）", Modifier.weight(1f))
+            ToggleButton(settings.snapEnabled) { actions.setSnap(it) }
+        }
+        Text("移動・リサイズでパネルの位置と端がグリッドに吸着します（ドラッグ中はグリッド線を表示）", color = IhlColors.TextDim, fontSize = 10.sp, lineHeight = 13.sp)
+        Spacer(Modifier.height(4.dp))
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text("グリッドの間隔", Modifier.weight(1f))
+            OptionDropdown(
+                current = "${settings.gridSizeDp}dp",
+                options = LauncherSettings.GRID_SIZE_OPTIONS.map { "${it}dp" to it },
+                onSelect = actions.setGridSize
+            )
+        }
+        Spacer(Modifier.height(4.dp))
+        WireButton("今のパネルをグリッドに揃える", onClick = actions.alignAllToGrid)
+        Spacer(Modifier.height(10.dp))
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text("画面の回転（横画面）", Modifier.weight(1f))
+            ToggleButton(settings.rotationEnabled) { actions.setRotationEnabled(it) }
+        }
+        Text("ON：端末の自動回転に従う（縦と横で配置は別々に保存）／OFF：縦画面に固定", color = IhlColors.TextDim, fontSize = 10.sp, lineHeight = 13.sp)
+        Spacer(Modifier.height(10.dp))
+        WireButton("パネル配置をリセット（今の向き）", onClick = actions.resetLayout)
         Spacer(Modifier.height(8.dp))
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Text("スケジュールの表示日数", Modifier.weight(1f))

@@ -1,6 +1,7 @@
 package com.ictools.ichomelauncher
 
 import android.content.Intent
+import android.content.pm.ActivityInfo
 import android.graphics.Color
 import android.os.Bundle
 import android.provider.Settings
@@ -19,6 +20,8 @@ import androidx.lifecycle.repeatOnLifecycle
 import com.ictools.ichomelauncher.ui.LauncherScreen
 import com.ictools.ichomelauncher.ui.theme.IhlTheme
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import java.util.function.Consumer
 import kotlin.math.roundToInt
@@ -51,6 +54,19 @@ class MainActivity : ComponentActivity() {
                 combine(viewModel.settings, viewModel.blurAvailable) { s, available ->
                     if (s.background.blurEnabled && available) s.background.blurRadiusDp else 0f
                 }.collect { radiusDp -> applyBlur(radiusDp) }
+            }
+        }
+
+        // 画面の回転：ON なら端末の自動回転に従う（回転ロック中はその向き）、OFF なら縦固定
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                viewModel.settings.map { it.rotationEnabled }.distinctUntilChanged().collect { enabled ->
+                    requestedOrientation = if (enabled) {
+                        ActivityInfo.SCREEN_ORIENTATION_USER
+                    } else {
+                        ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+                    }
+                }
             }
         }
 

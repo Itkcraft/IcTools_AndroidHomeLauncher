@@ -132,6 +132,18 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
 
     private var screenWidth = 0f
     private var screenHeight = 0f
+
+    // 現在の向き（横画面なら true）と、向きごとの配置（切り替え用に保持）
+    private var landscape = false
+    private val layouts = mutableMapOf<Boolean, List<PanelState>?>()
+
+    // スナップ中のドラッグ：指の動きをそのまま積み上げた位置・サイズ（表示はこれをグリッドに合わせたもの）
+    private var dragRaw: PanelState? = null
+
+    private val _dragging = MutableStateFlow(false)
+
+    /** パネルを移動・リサイズ中か（グリッド線の表示用） */
+    val dragging: StateFlow<Boolean> = _dragging.asStateFlow()
     private var loadStarted = false
     private var loaded = false
     private val saveMutex = Mutex()
@@ -274,16 +286,34 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
             loadStarted = true
             viewModelScope.launch {
                 _memos.value = memoRepository.load().associateBy { it.id }
-                val saved = panelRepository.load()
-                val base = if (saved == null) defaultLayout() else mergeWithDefaults(saved)
-                _panels.value = normalizeZ(base.map { clamp(it) })
+                layouts[false] = panelRepository.load(landscape = false)
+                layouts[true] = panelRepository.load(landscape = true)
+                // 読み込み中に回転していても、最新の画面サイズで向きを決める
+                landscape = screenWidth > screenHeight
+                _panels.value = layoutFor(layouts[landscape])
                 loaded = true
                 persist()
             }
         } else if (loaded) {
-            _panels.value = _panels.value.map { clamp(it) }
+            val nowLandscape = widthDp > heightDp
+            if (nowLandscape != landscape) {
+                // 向きが変わった：今の配置を残し、もう一方の向きの配置に切り替える
+                layouts[landscape] = _panels.value
+                landscape = nowLandscape
+                dragRaw = null
+                _dragging.value = false
+                _panels.value = layoutFor(layouts[landscape])
+            } else {
+                _panels.value = _panels.value.map { clamp(it) }
+            }
             persist()
         }
+    }
+
+    /** 保存された配置（無ければ初期配置）を今の画面に合わせて整える */
+    private fun layoutFor(saved: List<PanelState>?): List<PanelState> {
+        val base = if (saved == null) defaultLayout() else mergeWithDefaults(saved)
+        return normalizeZ(base.map { clamp(it) })
     }
 
     /** 単一パネルの初期配置。初回起動時はターミナルのみ画面中央下寄りに開く */
@@ -325,7 +355,12 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         }.distinctBy { it.id }
         val missing = defaults.filter { d -> known.none { it.id == d.id } }
             .map { it.copy(isOpen = false, zOrder = Int.MIN_VALUE) }
-        return known + missing
+        // もう一方の向きで作られたメモにも、閉じた状態のパネルを用意する
+        val missingMemos = _memos.value.keys
+            .map { PanelIds.memoPanelId(it) }
+            .filter { id -> known.none { it.id == id } }
+            .mapIndexed { i, id -> memoPanelAt(id, i).copy(isOpen = false, zOrder = Int.MIN_VALUE) }
+        return known + missing + missingMemos
     }
 
     /** 6.1 の制限（最小サイズ・タイトルバーが最低 48dp は画面内）に収まるよう補正する */
@@ -409,12 +444,49 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
 
     /** ドラッグ中の移動（保存はドラッグ終了時） */
     fun movePanelBy(id: String, dxDp: Float, dyDp: Float) {
-        update(id) { if (it.positionLocked) it else clamp(it.copy(xDp = it.xDp + dxDp, yDp = it.yDp + dyDp)) }
+        _dragging.value = true
+        update(id) { p ->
+            if (p.positionLocked) return@update p
+            if (!settings.value.snapEnabled) return@update clamp(p.copy(xDp = p.xDp + dxDp, yDp = p.yDp + dyDp))
+            // スナップ中：指の動きを積み上げた位置をグリッドに合わせて表示
+            val raw = rawFor(p).let { it.copy(xDp = it.xDp + dxDp, yDp = it.yDp + dyDp) }
+            dragRaw = raw
+            clamp(p.copy(xDp = snap(raw.xDp), yDp = snap(raw.yDp)))
+        }
     }
 
     /** ドラッグ中のリサイズ（保存はドラッグ終了時） */
     fun resizePanelBy(id: String, dwDp: Float, dhDp: Float) {
-        update(id) { if (it.sizeLocked) it else clamp(it.copy(widthDp = it.widthDp + dwDp, heightDp = it.heightDp + dhDp)) }
+        _dragging.value = true
+        update(id) { p ->
+            if (p.sizeLocked) return@update p
+            if (!settings.value.snapEnabled) return@update clamp(p.copy(widthDp = p.widthDp + dwDp, heightDp = p.heightDp + dhDp))
+            // スナップ中：右端・下端がグリッドに乗るようにする
+            val raw = rawFor(p).let { it.copy(widthDp = it.widthDp + dwDp, heightDp = it.heightDp + dhDp) }
+            dragRaw = raw
+            clamp(p.copy(widthDp = snap(p.xDp + raw.widthDp) - p.xDp, heightDp = snap(p.yDp + raw.heightDp) - p.yDp))
+        }
+    }
+
+    /** スナップ中のドラッグの基準（同じパネルのドラッグ中なら積み上げた値、そうでなければ今の値） */
+    private fun rawFor(p: PanelState): PanelState = dragRaw?.takeIf { it.id == p.id } ?: p
+
+    /** グリッドに合わせる */
+    private fun snap(v: Float): Float {
+        val g = settings.value.gridSizeDp.toFloat()
+        return Math.round(v / g) * g
+    }
+
+    /** 開いているパネルをすべてグリッドに揃える（固定中の位置・サイズはそのまま） */
+    fun alignAllToGrid() {
+        if (!loaded) return
+        _panels.value = _panels.value.map { p ->
+            var q = p
+            if (!p.positionLocked) q = q.copy(xDp = snap(q.xDp), yDp = snap(q.yDp))
+            if (!p.sizeLocked) q = q.copy(widthDp = snap(q.xDp + q.widthDp) - q.xDp, heightDp = snap(q.yDp + q.heightDp) - q.yDp)
+            clamp(q)
+        }
+        persist()
     }
 
     /** 位置の固定を切り替える */
@@ -430,9 +502,13 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     }
 
     /** ドラッグ終了時に保存 */
-    fun onDragEnd() = persist()
+    fun onDragEnd() {
+        dragRaw = null
+        _dragging.value = false
+        persist()
+    }
 
-    /** パネル配置を初回起動時の状態に戻す（メモは閉じた状態で残す） */
+    /** 今の向きのパネル配置を初回起動時の状態に戻す（メモは閉じた状態で残す） */
     fun resetLayout() {
         if (!loaded) return
         val memoPanels = _panels.value.filter { PanelIds.isMemo(it.id) }.mapIndexed { i, p ->
@@ -444,9 +520,13 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
 
     private fun persist() {
         if (!loaded) return
+        // 保存先の向きと内容は呼び出した時点のもの（保存中に回転しても取り違えない）
+        val land = landscape
+        val list = _panels.value
+        layouts[land] = list
         viewModelScope.launch {
-            // 連続保存の順序を保つため直列化し、常に最新の状態を書き込む
-            saveMutex.withLock { panelRepository.save(_panels.value) }
+            // 連続保存の順序を保つため直列化する
+            saveMutex.withLock { panelRepository.save(land, list) }
         }
     }
 
@@ -574,6 +654,10 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     fun resetPadGestures() = viewModelScope.launch {
         settingsRepository.setPadGestures(GestureType.defaultPadMapping())
     }
+
+    fun setSnap(enabled: Boolean) = viewModelScope.launch { settingsRepository.setSnap(enabled) }
+    fun setGridSize(dp: Int) = viewModelScope.launch { settingsRepository.setGridSize(dp) }
+    fun setRotationEnabled(enabled: Boolean) = viewModelScope.launch { settingsRepository.setRotationEnabled(enabled) }
 
     fun toggleFavoritesGrid() = viewModelScope.launch {
         settingsRepository.setFavoritesGrid(!settings.value.favoritesGrid)

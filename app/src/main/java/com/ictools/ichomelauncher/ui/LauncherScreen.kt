@@ -1,5 +1,6 @@
 package com.ictools.ichomelauncher.ui
 
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -12,7 +13,10 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.dp
+import com.ictools.ichomelauncher.ui.theme.IhlColors
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
@@ -83,6 +87,12 @@ fun LauncherScreen(vm: LauncherViewModel, onOpenHomeSettings: () -> Unit) {
                 .backgroundGestures(onDown = { focusManager.clearFocus() }, onGesture = vm::onGesture)
         )
 
+        // ---- グリッド線（スナップ中にパネルを動かしている間だけ） ----
+        val dragging by vm.dragging.collectAsStateWithLifecycle()
+        if (settings.snapEnabled && dragging) {
+            GridLines(settings.gridSizeDp)
+        }
+
         // ---- レイヤー3：パネル群 ----
         val focusedId = vm.focusedId(panels)
         // キーボード表示中は、フォーカス中のパネルが隠れないよう表示位置だけ一時的に持ち上げる（保存はしない）
@@ -119,6 +129,26 @@ fun LauncherScreen(vm: LauncherViewModel, onOpenHomeSettings: () -> Unit) {
                     PanelContent(panel.id, memo, vm, onOpenHomeSettings)
                 }
             }
+        }
+    }
+}
+
+/** スナップ用のグリッド線（薄いワイヤー色） */
+@Composable
+private fun GridLines(gridDp: Int) {
+    val color = IhlColors.Line.copy(alpha = IhlColors.Line.alpha * 0.5f)
+    Canvas(Modifier.fillMaxSize()) {
+        val step = gridDp.dp.toPx()
+        if (step <= 0f) return@Canvas
+        var x = 0f
+        while (x <= size.width) {
+            drawLine(color, Offset(x, 0f), Offset(x, size.height), strokeWidth = 1f)
+            x += step
+        }
+        var y = 0f
+        while (y <= size.height) {
+            drawLine(color, Offset(0f, y), Offset(size.width, y), strokeWidth = 1f)
+            y += step
         }
     }
 }
@@ -184,7 +214,11 @@ private fun PanelContent(id: String, memo: Memo?, vm: LauncherViewModel, onOpenH
                     requestAllFiles = vm::requestAllFilesAccess,
                     requestUsageAccess = vm::requestUsageAccess,
                     requestWriteSettings = vm::requestWriteSettings,
-                    setAssistMethod = { vm.setAssistMethod(it) }
+                    setAssistMethod = { vm.setAssistMethod(it) },
+                    setSnap = { vm.setSnap(it) },
+                    setGridSize = { vm.setGridSize(it) },
+                    alignAllToGrid = vm::alignAllToGrid,
+                    setRotationEnabled = { vm.setRotationEnabled(it) }
                 )
             )
         }
