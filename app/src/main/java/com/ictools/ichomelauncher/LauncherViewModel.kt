@@ -23,6 +23,22 @@ import com.ictools.ichomelauncher.data.PanelRepository
 import com.ictools.ichomelauncher.data.PanelState
 import com.ictools.ichomelauncher.data.PendingIntents
 import com.ictools.ichomelauncher.data.Permissions
+import com.ictools.ichomelauncher.data.PermissionState
+import com.ictools.ichomelauncher.data.Appearance
+import com.ictools.ichomelauncher.data.AssistMethod
+import com.ictools.ichomelauncher.data.AudioEffects
+import com.ictools.ichomelauncher.data.EqState
+import com.ictools.ichomelauncher.data.AliasRepository
+import com.ictools.ichomelauncher.data.FavoritesRepository
+import com.ictools.ichomelauncher.data.SoundController
+import com.ictools.ichomelauncher.data.MediaSettings
+import com.ictools.ichomelauncher.data.NetworkMonitor
+import com.ictools.ichomelauncher.data.NetworkSnapshot
+import com.ictools.ichomelauncher.data.SystemSnapshot
+import com.ictools.ichomelauncher.data.SystemStatus
+import com.ictools.ichomelauncher.data.TorchController
+import com.ictools.ichomelauncher.ui.terminal.FileShell
+import android.provider.MediaStore
 import com.ictools.ichomelauncher.data.SettingsRepository
 import com.ictools.ichomelauncher.gesture.GestureAction
 import com.ictools.ichomelauncher.gesture.GestureType
@@ -34,6 +50,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.map
@@ -44,6 +61,15 @@ import kotlinx.coroutines.sync.withLock
 import java.util.UUID
 import kotlin.math.max
 import kotlin.math.min
+
+/** Gemini アプリのパッケージ名（アシスタント起動の候補） */
+const val GEMINI_PACKAGE = "com.google.android.apps.bard"
+
+/** 音声アシストの Intent アクション */
+const val ACTION_VOICE_ASSIST = "android.intent.action.VOICE_ASSIST"
+
+/** インストールから何日間「新しいアプリ」として表示するか */
+const val NEW_APP_DAYS = 7
 
 /** パネル配置の制約値（dp） */
 object PanelMetrics {
@@ -62,9 +88,22 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     private val appRepository = AppRepository(application, viewModelScope)
     private val memoRepository = MemoRepository(application)
     private val historyRepository = HistoryRepository(application)
-    private val mediaRepository = MediaRepository(application)
+    private val mediaRepository = MediaRepository(application, viewModelScope)
     private val calendarRepository = CalendarRepository(application)
     private val notificationHistory = NotificationHistory.get(application)
+    private val favoritesRepository = FavoritesRepository(application)
+    private val torch = TorchController(application)
+    private val systemStatus = SystemStatus(application)
+    private val networkMonitor = NetworkMonitor(application)
+    private val audioEffects = AudioEffects.get(application)
+    private val fileShell = FileShell(application)
+    private val aliasRepository = AliasRepository(application)
+
+    /** 音量・明るさ */
+    val sound = SoundController(application)
+
+    // ターミナルの短縮コマンド
+    private var aliases: Map<String, String> = emptyMap()
 
     /** インストール済みアプリ一覧 */
     val apps: StateFlow<List<AppEntry>> = appRepository.apps
@@ -79,15 +118,10 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
 
     // ---- 権限 ----
 
-    private val _notificationAccess = MutableStateFlow(Permissions.hasNotificationAccess(application))
+    private val _permissions = MutableStateFlow(Permissions.current(application))
 
-    /** 「通知へのアクセス」が許可されているか（メディア・通知履歴に必要） */
-    val notificationAccess: StateFlow<Boolean> = _notificationAccess.asStateFlow()
-
-    private val _calendarAccess = MutableStateFlow(Permissions.hasCalendar(application))
-
-    /** カレンダーの読み取りが許可されているか（スケジュールに必要） */
-    val calendarAccess: StateFlow<Boolean> = _calendarAccess.asStateFlow()
+    /** 各権限の許可状態 */
+    val permissions: StateFlow<PermissionState> = _permissions.asStateFlow()
 
     // ---- パネル ----
 
@@ -98,6 +132,18 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
 
     private var screenWidth = 0f
     private var screenHeight = 0f
+
+    // 現在の向き（横画面なら true）と、向きごとの配置（切り替え用に保持）
+    private var landscape = false
+    private val layouts = mutableMapOf<Boolean, List<PanelState>?>()
+
+    // スナップ中のドラッグ：指の動きをそのまま積み上げた位置・サイズ（表示はこれをグリッドに合わせたもの）
+    private var dragRaw: PanelState? = null
+
+    private val _dragging = MutableStateFlow(false)
+
+    /** パネルを移動・リサイズ中か（グリッド線の表示用） */
+    val dragging: StateFlow<Boolean> = _dragging.asStateFlow()
     private var loadStarted = false
     private var loaded = false
     private val saveMutex = Mutex()
@@ -130,10 +176,63 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     /** 表示期間内の予定 */
     val events: StateFlow<List<CalendarEvent>> = _events.asStateFlow()
 
+    private val _eventsVersion = MutableStateFlow(0)
+
+    /** 予定が変わるたびに増える番号（カレンダーパネルの読み直し用） */
+    val eventsVersion: StateFlow<Int> = _eventsVersion.asStateFlow()
+
+    /** EQ の状態 */
+    val eq: StateFlow<EqState> = audioEffects.state
+
+    /** 通信状況 */
+    val network: StateFlow<NetworkSnapshot> = networkMonitor.state
+
+    // ---- お気に入り ----
+
+    private val _favoriteKeys = MutableStateFlow<List<String>>(emptyList())
+
+    /** お気に入りアプリのキー（並び順） */
+    val favoriteKeys: StateFlow<List<String>> = _favoriteKeys.asStateFlow()
+
+    /** 新しいアプリ（インストールから一定期間内で、まだ IHL から起動していないもの。新しい順） */
+    val newApps: StateFlow<List<AppEntry>> by lazy {
+        combine(appRepository.apps, _launchHistory) { list, history ->
+            val launchedAt = history.associate { it.appKey to it.time }
+            val since = System.currentTimeMillis() - NEW_APP_DAYS * 24L * 60 * 60 * 1000
+            list.filter { a ->
+                a.installTime >= since && (launchedAt[a.key] ?: 0L) < a.installTime
+            }.sortedByDescending { it.installTime }
+        }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+    }
+
     // ---- ターミナル ----
 
     /** ターミナルのセッション（ログ・履歴・コマンド実行） */
     val terminal = TerminalSession(object : TerminalHost {
+        override fun favorites() = favoriteApps()
+        override fun addFavorite(app: AppEntry) = this@LauncherViewModel.addFavorite(app)
+        override fun removeFavorite(app: AppEntry) = this@LauncherViewModel.removeFavorite(app)
+        override fun openCamera() = this@LauncherViewModel.openCamera()
+        override fun launchAssist(method: AssistMethod?) =
+            if (method == null) this@LauncherViewModel.launchAssist() else this@LauncherViewModel.launchAssist(method)
+        override fun assistMethod() = settings.value.assistMethod
+        override fun setAssistMethod(method: AssistMethod) {
+            this@LauncherViewModel.setAssistMethod(method)
+        }
+        override fun torchOn() = torch.isOn.value
+        override fun setTorch(on: Boolean) = torch.set(on)
+        override fun startActivity(intent: Intent) = startActivitySafely(intent)
+        override fun requestAllFilesAccess() = this@LauncherViewModel.requestAllFilesAccess()
+        override fun uninstall(app: AppEntry) = this@LauncherViewModel.uninstall(app)
+        override fun openAppInfo(app: AppEntry) = this@LauncherViewModel.openAppInfo(app)
+        override fun newApps() = this@LauncherViewModel.newApps.value
+        override fun aliases() = this@LauncherViewModel.aliases
+        override fun saveAliases(aliases: Map<String, String>) {
+            this@LauncherViewModel.aliases = aliases
+            viewModelScope.launch { aliasRepository.save(aliases) }
+        }
+        override fun sound() = this@LauncherViewModel.sound
+        override fun requestWriteSettings() = this@LauncherViewModel.requestWriteSettings()
         override fun apps() = appRepository.apps.value
         override fun launchApp(app: AppEntry) = this@LauncherViewModel.launchApp(app)
         override fun openPanel(id: String) = this@LauncherViewModel.openPanel(id)
@@ -145,12 +244,14 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         override fun onHistoryChanged(history: List<String>) {
             viewModelScope.launch { historyRepository.saveCommands(history) }
         }
-    })
+    }, fileShell, viewModelScope)
 
     init {
         viewModelScope.launch {
             terminal.restoreHistory(historyRepository.loadCommands())
             _launchHistory.value = historyRepository.loadLaunches()
+            _favoriteKeys.value = favoritesRepository.load()
+            aliases = aliasRepository.load()
         }
         mediaRepository.start()
         // 表示日数が変わったら予定を読み直す
@@ -167,15 +268,12 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
 
     /** 権限の状態を確認し直す（設定画面から戻ってきたとき等に呼ぶ） */
     fun refreshPermissions() {
-        val notification = Permissions.hasNotificationAccess(app)
-        _notificationAccess.value = notification
-        if (notification) mediaRepository.start() else mediaRepository.stop()
-
-        val calendar = Permissions.hasCalendar(app)
-        val calendarChanged = calendar != _calendarAccess.value
-        _calendarAccess.value = calendar
-        if (calendar) calendarRepository.observe { reloadEvents() } else calendarRepository.stopObserving()
-        if (calendarChanged || calendar) reloadEvents()
+        val p = Permissions.current(app)
+        _permissions.value = p
+        if (p.notificationAccess) mediaRepository.start() else mediaRepository.stop()
+        if (p.calendar) calendarRepository.observe { reloadEvents() } else calendarRepository.stopObserving()
+        reloadEvents()
+        networkMonitor.refreshPermissions()
     }
 
     /** 画面サイズ（dp）の通知。初回はここで保存データを読み込み、以降は画面内に収まるよう補正する */
@@ -188,16 +286,34 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
             loadStarted = true
             viewModelScope.launch {
                 _memos.value = memoRepository.load().associateBy { it.id }
-                val saved = panelRepository.load()
-                val base = if (saved == null) defaultLayout() else mergeWithDefaults(saved)
-                _panels.value = normalizeZ(base.map { clamp(it) })
+                layouts[false] = panelRepository.load(landscape = false)
+                layouts[true] = panelRepository.load(landscape = true)
+                // 読み込み中に回転していても、最新の画面サイズで向きを決める
+                landscape = screenWidth > screenHeight
+                _panels.value = layoutFor(layouts[landscape])
                 loaded = true
                 persist()
             }
         } else if (loaded) {
-            _panels.value = _panels.value.map { clamp(it) }
+            val nowLandscape = widthDp > heightDp
+            if (nowLandscape != landscape) {
+                // 向きが変わった：今の配置を残し、もう一方の向きの配置に切り替える
+                layouts[landscape] = _panels.value
+                landscape = nowLandscape
+                dragRaw = null
+                _dragging.value = false
+                _panels.value = layoutFor(layouts[landscape])
+            } else {
+                _panels.value = _panels.value.map { clamp(it) }
+            }
             persist()
         }
+    }
+
+    /** 保存された配置（無ければ初期配置）を今の画面に合わせて整える */
+    private fun layoutFor(saved: List<PanelState>?): List<PanelState> {
+        val base = if (saved == null) defaultLayout() else mergeWithDefaults(saved)
+        return normalizeZ(base.map { clamp(it) })
     }
 
     /** 単一パネルの初期配置。初回起動時はターミナルのみ画面中央下寄りに開く */
@@ -216,10 +332,18 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         return listOf(
             closed(PanelIds.DRAWER, listW, min(460f, h * 0.6f), h * 0.12f, 0),
             closed(PanelIds.SETTINGS, min(w - 32f, 340f), min(540f, h * 0.65f), h * 0.08f, 1),
-            closed(PanelIds.MEDIA, listW, 170f, h * 0.12f, 2),
+            closed(PanelIds.MEDIA, listW, min(320f, h * 0.45f), h * 0.12f, 2),
             closed(PanelIds.SCHEDULE, listW, min(420f, h * 0.5f), h * 0.1f, 3),
             closed(PanelIds.HISTORY, listW, min(440f, h * 0.55f), h * 0.1f, 4),
-            PanelState(PanelIds.TERMINAL, centeredX(termW), termY, termW, termH, isOpen = true, zOrder = 5)
+            closed(PanelIds.CLOCK, min(w - 32f, 260f), 150f, h * 0.08f, 5),
+            closed(PanelIds.CALENDAR, listW, min(440f, h * 0.55f), h * 0.1f, 6),
+            closed(PanelIds.STATUS, listW, min(460f, h * 0.6f), h * 0.1f, 7),
+            closed(PanelIds.NETWORK, listW, min(400f, h * 0.5f), h * 0.12f, 8),
+            closed(PanelIds.FAVORITES, min(w - 32f, 320f), min(380f, h * 0.5f), h * 0.12f, 9),
+            closed(PanelIds.PAD, min(w - 32f, 300f), 220f, h * 0.55f, 10),
+            closed(PanelIds.SOUND, listW, min(440f, h * 0.55f), h * 0.12f, 11),
+            closed(PanelIds.HELP, listW, min(460f, h * 0.55f), h * 0.08f, 12),
+            PanelState(PanelIds.TERMINAL, centeredX(termW), termY, termW, termH, isOpen = true, zOrder = 13)
         ).map { clamp(it) }
     }
 
@@ -231,7 +355,12 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         }.distinctBy { it.id }
         val missing = defaults.filter { d -> known.none { it.id == d.id } }
             .map { it.copy(isOpen = false, zOrder = Int.MIN_VALUE) }
-        return known + missing
+        // もう一方の向きで作られたメモにも、閉じた状態のパネルを用意する
+        val missingMemos = _memos.value.keys
+            .map { PanelIds.memoPanelId(it) }
+            .filter { id -> known.none { it.id == id } }
+            .mapIndexed { i, id -> memoPanelAt(id, i).copy(isOpen = false, zOrder = Int.MIN_VALUE) }
+        return known + missing + missingMemos
     }
 
     /** 6.1 の制限（最小サイズ・タイトルバーが最低 48dp は画面内）に収まるよう補正する */
@@ -281,24 +410,33 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     }
 
     /** パネルを閉じる。フォーカスは次に新しくアクティブ化されたパネルへ自動的に移る */
-    fun closePanel(id: String) {
-        if (!loaded) return
+    fun closePanel(id: String): Boolean {
+        if (!loaded) return false
+        // 位置またはサイズを固定しているパネルは閉じない
+        if (isLocked(id)) return false
         // 空のメモは閉じたら削除する
         if (PanelIds.isMemo(id)) {
             val memo = _memos.value[PanelIds.memoIdOf(id)]
             if (memo == null || memo.text.isBlank()) {
                 deleteMemo(PanelIds.memoIdOf(id))
-                return
+                return true
             }
         }
         update(id) { it.copy(isOpen = false) }
         persist()
+        return true
     }
 
+    /** 位置またはサイズを固定しているか（固定中は閉じられない） */
+    fun isLocked(id: String): Boolean =
+        _panels.value.firstOrNull { it.id == id }?.let { it.positionLocked || it.sizeLocked } == true
+
+    /** フォーカス中のパネルを閉じる（固定中なら何もしない） */
     fun closeFocused() {
         focusedId()?.let { closePanel(it) }
     }
 
+    /** 固定していないパネルをすべて閉じる */
     fun closeAll() {
         if (!loaded) return
         _panels.value.filter { it.isOpen }.forEach { closePanel(it.id) }
@@ -306,18 +444,71 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
 
     /** ドラッグ中の移動（保存はドラッグ終了時） */
     fun movePanelBy(id: String, dxDp: Float, dyDp: Float) {
-        update(id) { clamp(it.copy(xDp = it.xDp + dxDp, yDp = it.yDp + dyDp)) }
+        _dragging.value = true
+        update(id) { p ->
+            if (p.positionLocked) return@update p
+            if (!settings.value.snapEnabled) return@update clamp(p.copy(xDp = p.xDp + dxDp, yDp = p.yDp + dyDp))
+            // スナップ中：指の動きを積み上げた位置をグリッドに合わせて表示
+            val raw = rawFor(p).let { it.copy(xDp = it.xDp + dxDp, yDp = it.yDp + dyDp) }
+            dragRaw = raw
+            clamp(p.copy(xDp = snap(raw.xDp), yDp = snap(raw.yDp)))
+        }
     }
 
     /** ドラッグ中のリサイズ（保存はドラッグ終了時） */
     fun resizePanelBy(id: String, dwDp: Float, dhDp: Float) {
-        update(id) { clamp(it.copy(widthDp = it.widthDp + dwDp, heightDp = it.heightDp + dhDp)) }
+        _dragging.value = true
+        update(id) { p ->
+            if (p.sizeLocked) return@update p
+            if (!settings.value.snapEnabled) return@update clamp(p.copy(widthDp = p.widthDp + dwDp, heightDp = p.heightDp + dhDp))
+            // スナップ中：右端・下端がグリッドに乗るようにする
+            val raw = rawFor(p).let { it.copy(widthDp = it.widthDp + dwDp, heightDp = it.heightDp + dhDp) }
+            dragRaw = raw
+            clamp(p.copy(widthDp = snap(p.xDp + raw.widthDp) - p.xDp, heightDp = snap(p.yDp + raw.heightDp) - p.yDp))
+        }
+    }
+
+    /** スナップ中のドラッグの基準（同じパネルのドラッグ中なら積み上げた値、そうでなければ今の値） */
+    private fun rawFor(p: PanelState): PanelState = dragRaw?.takeIf { it.id == p.id } ?: p
+
+    /** グリッドに合わせる */
+    private fun snap(v: Float): Float {
+        val g = settings.value.gridSizeDp.toFloat()
+        return Math.round(v / g) * g
+    }
+
+    /** 開いているパネルをすべてグリッドに揃える（固定中の位置・サイズはそのまま） */
+    fun alignAllToGrid() {
+        if (!loaded) return
+        _panels.value = _panels.value.map { p ->
+            var q = p
+            if (!p.positionLocked) q = q.copy(xDp = snap(q.xDp), yDp = snap(q.yDp))
+            if (!p.sizeLocked) q = q.copy(widthDp = snap(q.xDp + q.widthDp) - q.xDp, heightDp = snap(q.yDp + q.heightDp) - q.yDp)
+            clamp(q)
+        }
+        persist()
+    }
+
+    /** 位置の固定を切り替える */
+    fun toggleLockPosition(id: String) {
+        update(id) { it.copy(positionLocked = !it.positionLocked) }
+        persist()
+    }
+
+    /** サイズの固定を切り替える */
+    fun toggleLockSize(id: String) {
+        update(id) { it.copy(sizeLocked = !it.sizeLocked) }
+        persist()
     }
 
     /** ドラッグ終了時に保存 */
-    fun onDragEnd() = persist()
+    fun onDragEnd() {
+        dragRaw = null
+        _dragging.value = false
+        persist()
+    }
 
-    /** パネル配置を初回起動時の状態に戻す（メモは閉じた状態で残す） */
+    /** 今の向きのパネル配置を初回起動時の状態に戻す（メモは閉じた状態で残す） */
     fun resetLayout() {
         if (!loaded) return
         val memoPanels = _panels.value.filter { PanelIds.isMemo(it.id) }.mapIndexed { i, p ->
@@ -329,9 +520,13 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
 
     private fun persist() {
         if (!loaded) return
+        // 保存先の向きと内容は呼び出した時点のもの（保存中に回転しても取り違えない）
+        val land = landscape
+        val list = _panels.value
+        layouts[land] = list
         viewModelScope.launch {
-            // 連続保存の順序を保つため直列化し、常に最新の状態を書き込む
-            saveMutex.withLock { panelRepository.save(_panels.value) }
+            // 連続保存の順序を保つため直列化する
+            saveMutex.withLock { panelRepository.save(land, list) }
         }
     }
 
@@ -400,6 +595,13 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         perform(settings.value.gestures[type] ?: GestureAction.NONE)
     }
 
+    /** タッチパッドのジェスチャー：タッチパッド用の割り当てを実行し、実行したアクションを返す（表示用） */
+    fun onPadGesture(type: GestureType): GestureAction {
+        val action = settings.value.padGestures[type] ?: GestureAction.NONE
+        perform(action)
+        return action
+    }
+
     private fun perform(action: GestureAction) {
         when (action) {
             GestureAction.NONE -> Unit
@@ -409,6 +611,19 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
             GestureAction.OPEN_MEDIA -> openPanel(PanelIds.MEDIA)
             GestureAction.OPEN_SCHEDULE -> openPanel(PanelIds.SCHEDULE)
             GestureAction.OPEN_HISTORY -> openPanel(PanelIds.HISTORY)
+            GestureAction.OPEN_CLOCK -> openPanel(PanelIds.CLOCK)
+            GestureAction.OPEN_CALENDAR -> openPanel(PanelIds.CALENDAR)
+            GestureAction.OPEN_STATUS -> openPanel(PanelIds.STATUS)
+            GestureAction.OPEN_NETWORK -> openPanel(PanelIds.NETWORK)
+            GestureAction.OPEN_FAVORITES -> openPanel(PanelIds.FAVORITES)
+            GestureAction.OPEN_PAD -> openPanel(PanelIds.PAD)
+            GestureAction.OPEN_SOUND -> openPanel(PanelIds.SOUND)
+            GestureAction.OPEN_HELP -> openPanel(PanelIds.HELP)
+            GestureAction.MEDIA_PLAY_PAUSE -> mediaRepository.playPause()
+            GestureAction.MEDIA_NEXT -> mediaRepository.next()
+            GestureAction.MEDIA_PREVIOUS -> mediaRepository.previous()
+            GestureAction.LIGHT_TOGGLE -> { torch.set(!torch.isOn.value) }
+            GestureAction.ASSIST -> { launchAssist() }
             GestureAction.NEW_MEMO -> newMemo()
             GestureAction.CLOSE_FOCUSED -> closeFocused()
             GestureAction.CLOSE_ALL -> closeAll()
@@ -421,6 +636,8 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     fun setBlurRadius(dp: Float) = viewModelScope.launch { settingsRepository.setBlurRadius(dp) }
     fun setSmoke(percent: Float) = viewModelScope.launch { settingsRepository.setSmoke(percent) }
     fun setScheduleDays(days: Int) = viewModelScope.launch { settingsRepository.setScheduleDays(days) }
+    fun setAppearance(a: Appearance) = viewModelScope.launch { settingsRepository.setAppearance(a) }
+    fun setMediaSettings(m: MediaSettings) = viewModelScope.launch { settingsRepository.setMediaSettings(m) }
 
     fun setGestureAction(type: GestureType, action: GestureAction) = viewModelScope.launch {
         settingsRepository.setGestures(settings.value.gestures + (type to action))
@@ -428,6 +645,22 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
 
     fun resetGestures() = viewModelScope.launch {
         settingsRepository.setGestures(GestureType.defaultMapping())
+    }
+
+    fun setPadGestureAction(type: GestureType, action: GestureAction) = viewModelScope.launch {
+        settingsRepository.setPadGestures(settings.value.padGestures + (type to action))
+    }
+
+    fun resetPadGestures() = viewModelScope.launch {
+        settingsRepository.setPadGestures(GestureType.defaultPadMapping())
+    }
+
+    fun setSnap(enabled: Boolean) = viewModelScope.launch { settingsRepository.setSnap(enabled) }
+    fun setGridSize(dp: Int) = viewModelScope.launch { settingsRepository.setGridSize(dp) }
+    fun setRotationEnabled(enabled: Boolean) = viewModelScope.launch { settingsRepository.setRotationEnabled(enabled) }
+
+    fun toggleFavoritesGrid() = viewModelScope.launch {
+        settingsRepository.setFavoritesGrid(!settings.value.favoritesGrid)
     }
 
     // ---- アプリ・履歴 ----
@@ -476,11 +709,114 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     fun mediaPrevious() = mediaRepository.previous()
     fun mediaSeek(positionMs: Long) = mediaRepository.seekTo(positionMs)
     fun openMediaPlayer() = mediaRepository.openPlayer()
+    fun mediaSkipTo(id: Long) = mediaRepository.skipToQueueItem(id)
+
+    // ---- EQ ----
+
+    fun eqSetEnabled(enabled: Boolean) = audioEffects.setEnabled(enabled)
+    fun eqSelectPreset(index: Int) = audioEffects.selectPreset(index)
+    fun eqSetBand(band: Int, level: Int) = audioEffects.setBandLevel(band, level)
+    fun eqReset() = audioEffects.reset()
+
+    // ---- お気に入り ----
+
+    /** お気に入りアプリ（アンインストール済みは除く） */
+    fun favoriteApps(): List<AppEntry> {
+        val byKey = apps.value.associateBy { it.key }
+        return _favoriteKeys.value.mapNotNull { byKey[it] }
+    }
+
+    private fun saveFavorites(keys: List<String>) {
+        _favoriteKeys.value = keys
+        viewModelScope.launch { favoritesRepository.save(keys) }
+    }
+
+    fun addFavorite(app: AppEntry) {
+        if (app.key !in _favoriteKeys.value) saveFavorites(_favoriteKeys.value + app.key)
+    }
+
+    fun removeFavorite(app: AppEntry) = saveFavorites(_favoriteKeys.value - app.key)
+
+    fun toggleFavorite(app: AppEntry) {
+        if (app.key in _favoriteKeys.value) removeFavorite(app) else addFavorite(app)
+    }
+
+    /** 並び替え（パネルに表示中のキーの順に保存。表示されていない＝未インストールのキーは末尾に残す） */
+    fun reorderFavorites(keys: List<String>) {
+        saveFavorites(keys + _favoriteKeys.value.filterNot { it in keys })
+    }
+
+    // ---- アンインストール・アプリ情報 ----
+
+    /** アンインストール画面を開く（システムアプリは false。呼び出し側でアプリ情報を案内する） */
+    fun uninstall(app: AppEntry): Boolean = appRepository.uninstall(app)
+
+    fun openAppInfo(app: AppEntry): Boolean = appRepository.openAppInfo(app)
+
+    // ---- カメラ・ライト・ファイル ----
+
+    fun openCamera(): Boolean = startActivitySafely(Intent(MediaStore.INTENT_ACTION_STILL_IMAGE_CAMERA))
+
+    /**
+     * アシスタントを起動し、実際に使えた方法を返す（どれも失敗したら null）。
+     * [method] を省略すると設定の方法を使う。AUTO は VOICE_COMMAND → VOICE_ASSIST → Gemini アプリ → ASSIST の順に試す。
+     * 電源ボタン長押しのアシスタント表示を呼ぶ公開 API は無いため、どれが Gemini のオーバーレイになるかは端末次第。
+     */
+    fun launchAssist(method: AssistMethod = settings.value.assistMethod): AssistMethod? {
+        val order = if (method == AssistMethod.AUTO) {
+            listOf(AssistMethod.VOICE_COMMAND, AssistMethod.VOICE_ASSIST, AssistMethod.GEMINI_APP, AssistMethod.ASSIST)
+        } else {
+            listOf(method)
+        }
+        return order.firstOrNull { tryAssist(it) }
+    }
+
+    private fun tryAssist(method: AssistMethod): Boolean = when (method) {
+        AssistMethod.VOICE_COMMAND -> startActivitySafely(Intent(Intent.ACTION_VOICE_COMMAND))
+        AssistMethod.VOICE_ASSIST -> startActivitySafely(Intent(ACTION_VOICE_ASSIST))
+        AssistMethod.ASSIST -> startActivitySafely(Intent(Intent.ACTION_ASSIST))
+        AssistMethod.GEMINI_APP -> app.packageManager.getLaunchIntentForPackage(GEMINI_PACKAGE)
+            ?.let { startActivitySafely(it) } ?: false
+        AssistMethod.AUTO -> false
+    }
+
+    fun setAssistMethod(method: AssistMethod) = viewModelScope.launch { settingsRepository.setAssistMethod(method) }
+
+    /** 「システム設定の変更」（明るさ）の許可画面を開く */
+    fun requestWriteSettings() {
+        if (!startActivitySafely(sound.writeSettingsIntent())) startActivitySafely(Intent(android.provider.Settings.ACTION_MANAGE_WRITE_SETTINGS))
+    }
+
+    /** ヘルプパネルなどから：ターミナルを開いて入力欄に文字列を入れる */
+    fun insertIntoTerminal(text: String) {
+        openPanel(PanelIds.TERMINAL)
+        terminal.prefill(text)
+    }
+
+    fun requestAllFilesAccess() {
+        if (!startActivitySafely(Permissions.allFilesIntent(app))) startActivitySafely(Permissions.allFilesListIntent())
+    }
+
+    fun requestUsageAccess() {
+        if (!startActivitySafely(Permissions.usageAccessIntent(app))) startActivitySafely(Permissions.usageAccessListIntent())
+    }
+
+    // ---- 稼働状況・通信 ----
+
+    suspend fun systemSnapshot(): SystemSnapshot = systemStatus.snapshot()
+    fun startNetwork() = networkMonitor.start()
+    fun stopNetwork() = networkMonitor.stop()
+
+    /** カレンダーパネル用：期間内の予定 */
+    suspend fun loadEvents(start: Long, end: Long): List<CalendarEvent> = calendarRepository.loadRange(start, end)
 
     // ---- 予定 ----
 
     fun reloadEvents() {
-        viewModelScope.launch { _events.value = calendarRepository.loadUpcoming(settings.value.scheduleDays) }
+        viewModelScope.launch {
+            _events.value = calendarRepository.loadUpcoming(settings.value.scheduleDays)
+            _eventsVersion.value++
+        }
     }
 
     /** カレンダーアプリで予定を開く */
@@ -496,6 +832,8 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         appRepository.close()
         mediaRepository.stop()
         calendarRepository.stopObserving()
+        networkMonitor.stop()
+        torch.close()
         super.onCleared()
     }
 }

@@ -69,20 +69,23 @@ fun Modifier.pinchGestures(onGesture: (GestureType) -> Unit): Modifier {
 }
 
 /**
- * 背景レイヤーのジェスチャー検出（1本指のスワイプ・ダブルタップ・長押し）。
- * システムジェスチャー領域（画面端）で始まったスワイプは無視する。
- * [onDown] は背景に指が触れた瞬間に呼ばれる（入力欄のフォーカス解除などに使う）。
+ * 1本指のジェスチャー検出（スワイプ・タップ・ダブルタップ・長押し）。背景レイヤーとタッチパッドで使う。
+ * [ignoreSystemZones] が true なら、システムジェスチャー領域（画面端）で始まったスワイプは無視する。
+ * [detectTap] が true ならシングルタップも通知する（ダブルタップの待ち時間の後）。
+ * [onDown] は指が触れた瞬間に呼ばれる（入力欄のフォーカス解除などに使う）。
  */
 @Composable
 fun Modifier.backgroundGestures(
     onDown: () -> Unit,
+    ignoreSystemZones: Boolean = true,
+    detectTap: Boolean = false,
     onGesture: (GestureType) -> Unit
 ): Modifier {
     val callback by rememberUpdatedState(onGesture)
     val downCallback by rememberUpdatedState(onDown)
     val systemGestures = WindowInsets.systemGestures
     val layoutDirection = LocalLayoutDirection.current
-    return this.pointerInput(Unit) {
+    return this.pointerInput(ignoreSystemZones, detectTap) {
         // ジェスチャー開始位置がシステムジェスチャー領域内か
         fun inSystemZone(pos: Offset, size: IntSize, density: Density, dir: LayoutDirection): Boolean {
             val left = systemGestures.getLeft(density, dir)
@@ -98,7 +101,7 @@ fun Modifier.backgroundGestures(
         awaitEachGesture {
             val down = awaitFirstDown()
             downCallback()
-            val startedInSystemZone = inSystemZone(down.position, size, this, layoutDirection)
+            val startedInSystemZone = ignoreSystemZones && inSystemZone(down.position, size, this, layoutDirection)
             val touchSlop = viewConfiguration.touchSlop
 
             // 長押し時間内に「離した／動いた／2本指になった」のどれが起きたかを判定
@@ -137,7 +140,11 @@ fun Modifier.backgroundGestures(
                 outcome == Outcome.UP -> {
                     // 2回目のタップを待つ
                     val second = withTimeoutOrNull(viewConfiguration.doubleTapTimeoutMillis) { awaitFirstDown() }
-                        ?: return@awaitEachGesture
+                    if (second == null) {
+                        // 2回目が来なければシングルタップ
+                        if (detectTap) callback(GestureType.TAP)
+                        return@awaitEachGesture
+                    }
                     if ((second.position - down.position).getDistance() > doubleTapSlop) {
                         waitForAllUp()
                         return@awaitEachGesture

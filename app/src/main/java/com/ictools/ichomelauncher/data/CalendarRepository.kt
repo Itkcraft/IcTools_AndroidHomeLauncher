@@ -41,12 +41,16 @@ class CalendarRepository(context: Context) {
     private var observer: ContentObserver? = null
 
     /** 今日の 0 時から [days] 日分の予定を開始時刻順に取得する */
-    suspend fun loadUpcoming(days: Int): List<CalendarEvent> = withContext(Dispatchers.IO) {
-        if (!Permissions.hasCalendar(appContext)) return@withContext emptyList()
+    suspend fun loadUpcoming(days: Int): List<CalendarEvent> {
         val start = Calendar.getInstance().apply {
             set(Calendar.HOUR_OF_DAY, 0); set(Calendar.MINUTE, 0); set(Calendar.SECOND, 0); set(Calendar.MILLISECOND, 0)
         }.timeInMillis
-        val end = start + days * 24L * 60 * 60 * 1000
+        return loadRange(start, start + days * 24L * 60 * 60 * 1000)
+    }
+
+    /** [start]〜[end] に重なる予定を取得する（権限が無ければ空） */
+    suspend fun loadRange(start: Long, end: Long): List<CalendarEvent> = withContext(Dispatchers.IO) {
+        if (!Permissions.hasCalendar(appContext)) return@withContext emptyList()
 
         val uri = CalendarContract.Instances.CONTENT_URI.buildUpon().also {
             ContentUris.appendId(it, start)

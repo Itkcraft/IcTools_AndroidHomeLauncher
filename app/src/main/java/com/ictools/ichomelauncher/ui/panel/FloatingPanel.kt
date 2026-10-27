@@ -16,9 +16,14 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -29,6 +34,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.ictools.ichomelauncher.PanelMetrics
 import com.ictools.ichomelauncher.ui.theme.IhlColors
 import com.ictools.ichomelauncher.ui.theme.PanelShape
@@ -46,6 +52,10 @@ fun FloatingPanel(
     widthDp: Float,
     heightDp: Float,
     focused: Boolean,
+    positionLocked: Boolean,
+    sizeLocked: Boolean,
+    onToggleLockPosition: () -> Unit,
+    onToggleLockSize: () -> Unit,
     onFocus: () -> Unit,
     onClose: () -> Unit,
     onMove: (dxDp: Float, dyDp: Float) -> Unit,
@@ -75,12 +85,13 @@ fun FloatingPanel(
             .background(IhlColors.PanelBackground)
             .border(1.dp, if (focused) IhlColors.BorderFocused else IhlColors.Border, PanelShape)
     ) {
-        // ---- タイトルバー（ドラッグで移動） ----
+        // ---- タイトルバー（ドラッグで移動。位置固定中は動かない） ----
         Row(
             Modifier
                 .fillMaxWidth()
                 .height(PanelMetrics.TITLE_BAR_HEIGHT.dp)
-                .pointerInput(Unit) {
+                .pointerInput(positionLocked) {
+                    if (positionLocked) return@pointerInput
                     detectDragGestures(
                         onDragEnd = { currentOnDragEnd() },
                         onDragCancel = { currentOnDragEnd() }
@@ -92,22 +103,54 @@ fun FloatingPanel(
                 .padding(start = 10.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(
-                text = title,
-                modifier = Modifier.weight(1f),
-                color = if (focused) IhlColors.Accent else IhlColors.TextDim,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-            // 閉じるボタン（右上はカットされているので少し内側に置く）
+            // タイトルと固定中の印は残りの幅をすべて使う（ボタンを右端に寄せるため）
+            Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = title,
+                    modifier = Modifier.weight(1f, fill = false),
+                    color = if (focused) IhlColors.Accent else IhlColors.TextDim,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                // 固定中の印
+                val lockTag = when {
+                    positionLocked && sizeLocked -> " [fixed]"
+                    positionLocked -> " [pos]"
+                    sizeLocked -> " [size]"
+                    else -> ""
+                }
+                if (lockTag.isNotEmpty()) Text(lockTag, color = IhlColors.TextDim, fontSize = 10.sp, maxLines = 1)
+            }
+            // パネルメニュー（位置・サイズの固定）
+            var menu by remember { mutableStateOf(false) }
+            Box(
+                Modifier
+                    .size(width = 26.dp, height = PanelMetrics.TITLE_BAR_HEIGHT.dp)
+                    .clickable { menu = true },
+                contentAlignment = Alignment.Center
+            ) {
+                Text("⋮", color = IhlColors.TextDim)
+                DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                    DropdownMenuItem(
+                        text = { Text((if (positionLocked) "[x] " else "[ ] ") + "位置を固定") },
+                        onClick = { menu = false; onToggleLockPosition() }
+                    )
+                    DropdownMenuItem(
+                        text = { Text((if (sizeLocked) "[x] " else "[ ] ") + "サイズを固定") },
+                        onClick = { menu = false; onToggleLockSize() }
+                    )
+                }
+            }
+            // 閉じるボタン（右上はカットされているので少し内側に置く）。固定中は押せない
+            val closable = !positionLocked && !sizeLocked
             Box(
                 Modifier
                     .size(PanelMetrics.TITLE_BAR_HEIGHT.dp)
                     .padding(end = 6.dp)
-                    .clickable(onClick = onClose),
+                    .clickable(enabled = closable, onClick = onClose),
                 contentAlignment = Alignment.Center
             ) {
-                Text("✕", color = IhlColors.TextDim)
+                Text("✕", color = if (closable) IhlColors.TextDim else IhlColors.Line)
             }
         }
         // タイトルバー下の区切り線
@@ -117,8 +160,8 @@ fun FloatingPanel(
         Box(Modifier.weight(1f).fillMaxWidth()) {
             content()
 
-            // ---- リサイズハンドル（右下の小さな三角） ----
-            Canvas(
+            // ---- リサイズハンドル（右下の小さな三角。サイズ固定中は出さない） ----
+            if (!sizeLocked) Canvas(
                 Modifier
                     .align(Alignment.BottomEnd)
                     .size(22.dp)

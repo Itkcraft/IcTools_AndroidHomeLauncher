@@ -2,7 +2,12 @@ package com.ictools.ichomelauncher.data
 
 import android.content.ComponentName
 import android.content.Context
+import android.content.Intent
+import android.content.pm.ApplicationInfo
 import android.content.pm.LauncherActivityInfo
+import android.content.pm.PackageManager
+import android.net.Uri
+import android.os.Process
 import android.content.pm.LauncherApps
 import android.os.Handler
 import android.os.Looper
@@ -26,7 +31,9 @@ data class AppEntry(
     val label: String,
     val component: ComponentName,
     val user: UserHandle,
-    val userSerial: Long
+    val userSerial: Long,
+    val installTime: Long = 0,      // 初回インストール日時（取得できなければ 0）
+    val isSystem: Boolean = false   // プリインストール（システム）アプリか
 ) {
     /** 一覧の key・履歴の保存に使う一意な文字列（再起動後も変わらない） */
     val key: String get() = "${component.flattenToString()}#$userSerial"
@@ -49,7 +56,7 @@ class AppRepository(context: Context, private val scope: CoroutineScope) {
     @Volatile
     private var activityInfos: Map<String, LauncherActivityInfo> = emptyMap()
 
-    // アイコンのメモリキャッシュ（最大 300 件）
+    // アイコンのメモリキャッシュ（最大 300 件。キーはアプリ＋大きさ）
     private val iconCache = LruCache<String, ImageBitmap>(300)
 
     // アプリのインストール／アンインストール／更新を検知して一覧を更新する
@@ -80,8 +87,21 @@ class AppRepository(context: Context, private val scope: CoroutineScope) {
                 .filter { it.componentName.packageName != ownPackage }
 
             val collator = Collator.getInstance()
+            val pm = appContext.packageManager
             val pairs = infos.map { info ->
-                AppEntry(info.label.toString(), info.componentName, info.user, userManager.getSerialNumberForUser(info.user)) to info
+                val pkg = info.componentName.packageName
+                val installTime = runCatching {
+                    pm.getPackageInfo(pkg, PackageManager.PackageInfoFlags.of(0)).firstInstallTime
+                }.getOrDefault(0L)
+                val isSystem = info.applicationInfo.flags and ApplicationInfo.FLAG_SYSTEM != 0
+                AppEntry(
+                    label = info.label.toString(),
+                    component = info.componentName,
+                    user = info.user,
+                    userSerial = userManager.getSerialNumberForUser(info.user),
+                    installTime = installTime,
+                    isSystem = isSystem
+                ) to info
             }
             activityInfos = pairs.associate { (entry, info) -> entry.key to info }
             _apps.value = pairs.map { it.first }.sortedWith { a, b -> collator.compare(a.label, b.label) }
@@ -90,18 +110,36 @@ class AppRepository(context: Context, private val scope: CoroutineScope) {
 
     /** アプリのアイコンを読み込む（キャッシュ付き・IO スレッド） */
     suspend fun loadIcon(app: AppEntry, sizePx: Int): ImageBitmap? {
-        iconCache.get(app.key)?.let { return it }
+        val cacheKey = "${app.key}@$sizePx"
+        iconCache.get(cacheKey)?.let { return it }
         return withContext(Dispatchers.IO) {
             val info = activityInfos[app.key] ?: return@withContext null
             runCatching {
                 info.getBadgedIcon(0).toBitmap(sizePx, sizePx).asImageBitmap()
-            }.getOrNull()?.also { iconCache.put(app.key, it) }
+            }.getOrNull()?.also { iconCache.put(cacheKey, it) }
         }
     }
 
     /** アプリを起動する。成功したら true */
     fun launch(app: AppEntry): Boolean = runCatching {
         launcherApps.startMainActivity(app.component, app.user, null, null)
+    }.isSuccess
+
+    /**
+     * アンインストール画面を開く（OS の確認ダイアログが出る）。
+     * システムアプリはアンインストールできないため false を返す（呼び出し側でアプリ情報を案内する）。
+     */
+    fun uninstall(app: AppEntry): Boolean {
+        if (app.isSystem) return false
+        val intent = Intent(Intent.ACTION_DELETE, Uri.fromParts("package", app.component.packageName, null))
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        if (app.user != Process.myUserHandle()) intent.putExtra(Intent.EXTRA_USER, app.user)
+        return runCatching { appContext.startActivity(intent) }.isSuccess
+    }
+
+    /** アプリ情報（設定アプリ）を開く */
+    fun openAppInfo(app: AppEntry): Boolean = runCatching {
+        launcherApps.startAppDetailsActivity(app.component, app.user, null, null)
     }.isSuccess
 
     /** 監視を解除する */
