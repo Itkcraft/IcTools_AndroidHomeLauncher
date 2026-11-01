@@ -3,9 +3,12 @@ package com.ictools.ichomelauncher.ui.html
 import android.annotation.SuppressLint
 import android.net.Uri
 import android.webkit.WebResourceError
+import android.view.ViewGroup
+import android.webkit.ConsoleMessage
 import android.webkit.JavascriptInterface
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
+import android.webkit.WebChromeClient
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -266,6 +269,9 @@ private fun HtmlView(entry: HtmlEntry, reloadKey: Int, actions: HtmlActions) {
             modifier = Modifier.fillMaxSize(),
             factory = { ctx ->
                 WebView(ctx).apply {
+                    // 大きさを「親いっぱい」と明示する。指定しないと WebView が中身に合わせた高さとして扱い、
+                    // height:100% のページ（全体を 1 画面に収める作り）が高さ 0 になって背景色しか表示されない
+                    layoutParams = ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
                     settings.javaScriptEnabled = true
                     settings.domStorageEnabled = true
                     // 端末のファイル・content:// を直接読ませない（中身はアプリが読んで渡す）
@@ -278,6 +284,15 @@ private fun HtmlView(entry: HtmlEntry, reloadKey: Int, actions: HtmlActions) {
                     settings.loadWithOverviewMode = true
                     // navigator.vibrate を端末の振動につなぐ（WebView は標準では振動 API に対応していない）
                     addJavascriptInterface(VibrateBridge(actions.vibrate), BRIDGE_NAME)
+                    // ページの JavaScript エラーを表示する（表示されない原因を調べられるように）
+                    webChromeClient = object : WebChromeClient() {
+                        override fun onConsoleMessage(message: ConsoleMessage): Boolean {
+                            if (message.messageLevel() == ConsoleMessage.MessageLevel.ERROR) {
+                                error = "JS: ${message.message()} (line ${message.lineNumber()})"
+                            }
+                            return false
+                        }
+                    }
                     webViewClient = object : WebViewClient() {
                         override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
                             val url = request.url
@@ -307,7 +322,7 @@ private fun HtmlView(entry: HtmlEntry, reloadKey: Int, actions: HtmlActions) {
         )
         error?.let {
             Text(
-                "読み込めませんでした：$it",
+                if (it.startsWith("JS: ")) it else "読み込めませんでした：$it",
                 color = IhlColors.Accent,
                 fontSize = 11.sp,
                 modifier = Modifier.align(Alignment.BottomStart).background(IhlColors.PanelBackground).padding(6.dp)
