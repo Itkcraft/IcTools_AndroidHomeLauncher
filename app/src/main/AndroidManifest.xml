@@ -4,6 +4,8 @@
 
     <!-- HTML ビューア：ページが読み込む外部リソース（CDN の CSS・JavaScript・フォント・画像など） -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- HTML ビューア：ページの navigator.vibrate を端末の振動につなぐ（通常の権限） -->
+    <uses-permission android:name="android.permission.VIBRATE" />
     <!-- スケジュール・カレンダーパネル：端末のカレンダーの予定を読む（読み取りのみ） -->
     <uses-permission android:name="android.permission.READ_CALENDAR" />
     <!-- 音楽波形：Visualizer で出力音声を解析するために必要（録音はしない） -->

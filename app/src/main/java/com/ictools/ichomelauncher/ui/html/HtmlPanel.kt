@@ -3,7 +3,9 @@ package com.ictools.ichomelauncher.ui.html
 import android.annotation.SuppressLint
 import android.net.Uri
 import android.webkit.WebResourceError
+import android.webkit.JavascriptInterface
 import android.webkit.WebResourceRequest
+import android.webkit.WebResourceResponse
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -49,6 +51,7 @@ import com.ictools.ichomelauncher.gesture.PinchExclusion
 import com.ictools.ichomelauncher.ui.common.WireButton
 import com.ictools.ichomelauncher.ui.theme.IhlColors
 import kotlinx.coroutines.delay
+import java.io.ByteArrayInputStream
 
 /** HTML パネルから呼ぶ操作 */
 class HtmlActions(
@@ -56,18 +59,24 @@ class HtmlActions(
     val select: (String) -> Unit,
     val remove: (HtmlEntry) -> Unit,
     val canRead: (HtmlEntry) -> Boolean,
-    val openExternal: (Uri) -> Boolean
+    val read: suspend (HtmlEntry) -> String?,
+    val openExternal: (Uri) -> Boolean,
+    val vibrate: (Long) -> Unit,
+    val dismissMessage: () -> Unit
 )
 
-/** ファイルピッカーで選べる種類 */
-private val HTML_MIME_TYPES = arrayOf("text/html", "application/xhtml+xml")
+/**
+ * ファイルピッカーで選べる種類。
+ * .html を text/html として扱わないファイルアプリもあるため、すべてのファイルを選べるようにする。
+ */
+private val HTML_MIME_TYPES = arrayOf("*/*")
 
 /**
  * HTML パネル：ファイルピッカーで追加した HTML ファイルを WebView（JavaScript 有効）で表示する。
  * 一覧は保存され、上部のファイル名から表示するファイルを切り替えられる。≡ で一覧（追加・削除）を開く。
  */
 @Composable
-fun HtmlPanel(library: HtmlLibrary, actions: HtmlActions) {
+fun HtmlPanel(library: HtmlLibrary, message: String?, actions: HtmlActions) {
     var showList by rememberSaveable { mutableStateOf(false) }
     var reloadKey by remember { mutableIntStateOf(0) }
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
@@ -109,13 +118,23 @@ fun HtmlPanel(library: HtmlLibrary, actions: HtmlActions) {
         }
         Box(Modifier.fillMaxWidth().height(1.dp).background(IhlColors.Line))
 
+        // 追加に失敗したときなどのお知らせ（タップで閉じる）
+        message?.let {
+            Text(
+                it,
+                color = IhlColors.Accent,
+                fontSize = 11.sp,
+                modifier = Modifier.fillMaxWidth().clickable(onClick = actions.dismissMessage).padding(horizontal = 8.dp, vertical = 4.dp)
+            )
+        }
+
         // ---- 本体 ----
         Box(Modifier.weight(1f).fillMaxWidth()) {
             when {
                 showList -> FileList(library, actions, onAdd = { picker.launch(HTML_MIME_TYPES) }, onPicked = { showList = false })
                 current == null -> EmptyState { picker.launch(HTML_MIME_TYPES) }
                 !actions.canRead(current) -> Unreadable(current, actions)
-                else -> HtmlView(current.uri, reloadKey, actions.openExternal)
+                else -> HtmlView(current, reloadKey, actions)
             }
         }
     }
@@ -138,7 +157,7 @@ private fun EmptyState(onAdd: () -> Unit) {
         WireButton("+ HTML ファイルを追加", onClick = onAdd)
         Spacer(Modifier.height(8.dp))
         Text(
-            "CSS・JavaScript・画像を1つのファイルにまとめた HTML がおすすめです（別ファイルの相対パス参照は読み込めません）",
+            "CSS・JavaScript・画像を1つのファイルにまとめた HTML を表示できます（別ファイルの相対パス参照は読み込めません）。localStorage・WebAudio・navigator.vibrate も使えます",
             color = IhlColors.TextDim, fontSize = 10.sp, lineHeight = 13.sp
         )
     }
@@ -199,12 +218,14 @@ private fun FileList(library: HtmlLibrary, actions: HtmlActions, onAdd: () -> Un
 }
 
 /**
- * WebView で表示する（JavaScript 有効）。
+ * WebView で表示する（JavaScript・localStorage 有効）。
+ * 中身を読み込んで https://ihl.local/<ID>/ という仮の場所のページとして表示する。
+ * （content:// のまま開くとページに正しい「場所」が無く、localStorage などが使えないため）
  * ページ内の http(s) リンクは外部ブラウザで開く。この範囲では画面全体のピンチを無効にして、ページの拡大縮小を優先する。
  */
-@SuppressLint("SetJavaScriptEnabled")
+@SuppressLint("SetJavaScriptEnabled", "JavascriptInterface")
 @Composable
-private fun HtmlView(uri: String, reloadKey: Int, openExternal: (Uri) -> Boolean) {
+private fun HtmlView(entry: HtmlEntry, reloadKey: Int, actions: HtmlActions) {
     // WebViewClient は一度だけ作るため、ファイルごとに作り直さない状態にする（切り替え時は LaunchedEffect で消す）
     var error by remember { mutableStateOf<String?>(null) }
     var webView by remember { mutableStateOf<WebView?>(null) }
@@ -228,10 +249,16 @@ private fun HtmlView(uri: String, reloadKey: Int, openExternal: (Uri) -> Boolean
         }
     }
     // ファイルの切り替え・再読み込み
-    LaunchedEffect(uri, reloadKey, webView) {
+    LaunchedEffect(entry.uri, reloadKey, webView) {
         val view = webView ?: return@LaunchedEffect
         error = null
-        if (view.url == uri && reloadKey > 0) view.reload() else view.loadUrl(uri)
+        val html = actions.read(entry)
+        if (html == null) {
+            error = "ファイルを読めませんでした"
+            return@LaunchedEffect
+        }
+        val base = "https://$VIRTUAL_HOST/${entry.key}/"
+        view.loadDataWithBaseURL(base + "index.html", injectBridge(html), "text/html", "UTF-8", base + "index.html")
     }
 
     Box(Modifier.fillMaxSize().onGloballyPositioned { PinchExclusion.set(PINCH_KEY, it.boundsInRoot()) }) {
@@ -241,22 +268,33 @@ private fun HtmlView(uri: String, reloadKey: Int, openExternal: (Uri) -> Boolean
                 WebView(ctx).apply {
                     settings.javaScriptEnabled = true
                     settings.domStorageEnabled = true
-                    // ローカルファイルへの直接アクセスは許可せず、ピッカーで選んだ content:// だけを読む
+                    // 端末のファイル・content:// を直接読ませない（中身はアプリが読んで渡す）
                     settings.allowFileAccess = false
-                    settings.allowContentAccess = true
+                    settings.allowContentAccess = false
                     settings.setSupportZoom(true)
                     settings.builtInZoomControls = true
                     settings.displayZoomControls = false
                     settings.useWideViewPort = true
                     settings.loadWithOverviewMode = true
+                    // navigator.vibrate を端末の振動につなぐ（WebView は標準では振動 API に対応していない）
+                    addJavascriptInterface(VibrateBridge(actions.vibrate), BRIDGE_NAME)
                     webViewClient = object : WebViewClient() {
                         override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
-                            val scheme = request.url.scheme?.lowercase()
+                            val url = request.url
+                            val scheme = url.scheme?.lowercase()
+                            // 仮の場所の中の移動（ページ内リンク以外）は行き先が無いので止める
+                            if (url.host == VIRTUAL_HOST) return url.fragment == null
                             if (request.isForMainFrame && (scheme == "http" || scheme == "https" || scheme == "mailto" || scheme == "tel")) {
-                                openExternal(request.url)
+                                actions.openExternal(url)
                                 return true
                             }
                             return false
+                        }
+
+                        // 仮の場所への読み込み（相対パスの CSS・JS・画像など）は外へ出さずに「見つからない」で返す
+                        override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse? {
+                            if (request.url.host != VIRTUAL_HOST) return null
+                            return WebResourceResponse("text/plain", "utf-8", 404, "Not Found", emptyMap(), ByteArrayInputStream(ByteArray(0)))
                         }
 
                         override fun onReceivedError(view: WebView, request: WebResourceRequest, err: WebResourceError) {
@@ -276,6 +314,32 @@ private fun HtmlView(uri: String, reloadKey: Int, openExternal: (Uri) -> Boolean
             )
         }
     }
+}
+
+/** JavaScript から呼ぶ振動（WebView の裏のスレッドから呼ばれる） */
+private class VibrateBridge(private val vibrate: (Long) -> Unit) {
+    @JavascriptInterface
+    fun vibrate(ms: Int) {
+        vibrate(ms.toLong().coerceIn(1, 1000))
+    }
+}
+
+/** 仮の場所（ページの origin）のホスト名 */
+private const val VIRTUAL_HOST = "ihl.local"
+private const val BRIDGE_NAME = "IHLNative"
+
+/** navigator.vibrate を IHLNative.vibrate につなぐスクリプト（ページのスクリプトより先に動くよう head の先頭に入れる） */
+private val BRIDGE_SCRIPT = """<script>(function(){try{var f=function(p){var ms=Array.isArray(p)?p.filter(function(_,i){return i%2===0}).reduce(function(a,b){return a+(b|0)},0):(p|0);if(ms>0)$BRIDGE_NAME.vibrate(Math.min(ms,1000));return true;};Object.defineProperty(navigator,'vibrate',{value:f,configurable:true,writable:true});}catch(e){}})();</script>"""
+
+/** HTML の head の直後（無ければ doctype の後、それも無ければ先頭）に振動用のスクリプトを入れる */
+private fun injectBridge(html: String): String {
+    Regex("<head(\\s[^>]*)?>", RegexOption.IGNORE_CASE).find(html)?.let { m ->
+        return html.substring(0, m.range.last + 1) + BRIDGE_SCRIPT + html.substring(m.range.last + 1)
+    }
+    Regex("<!doctype[^>]*>", RegexOption.IGNORE_CASE).find(html)?.let { m ->
+        return html.substring(0, m.range.last + 1) + BRIDGE_SCRIPT + html.substring(m.range.last + 1)
+    }
+    return BRIDGE_SCRIPT + html
 }
 
 private const val PINCH_KEY = "html"

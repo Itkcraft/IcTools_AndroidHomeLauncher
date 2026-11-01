@@ -3,6 +3,8 @@ package com.ictools.ichomelauncher
 import android.app.Application
 import android.content.Intent
 import android.net.Uri
+import android.os.VibrationEffect
+import android.os.VibratorManager
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
@@ -31,6 +33,7 @@ import com.ictools.ichomelauncher.data.AudioEffects
 import com.ictools.ichomelauncher.data.EqState
 import com.ictools.ichomelauncher.data.AliasRepository
 import com.ictools.ichomelauncher.data.FavoritesRepository
+import com.ictools.ichomelauncher.data.HtmlAddResult
 import com.ictools.ichomelauncher.data.HtmlEntry
 import com.ictools.ichomelauncher.data.HtmlLibrary
 import com.ictools.ichomelauncher.data.HtmlRepository
@@ -108,6 +111,11 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
 
     /** HTML ビューアの一覧と表示中のファイル */
     val htmlLibrary: StateFlow<HtmlLibrary> = _htmlLibrary.asStateFlow()
+
+    private val _htmlMessage = MutableStateFlow<String?>(null)
+
+    /** HTML の追加に失敗したときなどのお知らせ */
+    val htmlMessage: StateFlow<String?> = _htmlMessage.asStateFlow()
 
     /** 音量・明るさ */
     val sound = SoundController(application)
@@ -766,10 +774,30 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     /** ファイルピッカーで選んだ HTML を一覧に追加して表示する（同じファイルは追加し直さない） */
     fun addHtml(uri: Uri) {
         viewModelScope.launch {
-            val entry = htmlRepository.prepare(uri) ?: return@launch
-            val lib = _htmlLibrary.value
-            val entries = if (lib.entries.any { it.uri == entry.uri }) lib.entries else lib.entries + entry
-            saveHtml(HtmlLibrary(entries, entry.uri))
+            when (val result = htmlRepository.prepare(uri)) {
+                is HtmlAddResult.Failed -> _htmlMessage.value = result.reason
+                is HtmlAddResult.Added -> {
+                    _htmlMessage.value = null
+                    val entry = result.entry
+                    val lib = _htmlLibrary.value
+                    val entries = if (lib.entries.any { it.uri == entry.uri }) lib.entries else lib.entries + entry
+                    saveHtml(HtmlLibrary(entries, entry.uri))
+                }
+            }
+        }
+    }
+
+    suspend fun readHtml(entry: HtmlEntry): String? = htmlRepository.read(entry)
+
+    fun dismissHtmlMessage() {
+        _htmlMessage.value = null
+    }
+
+    /** HTML ページからの振動（navigator.vibrate） */
+    fun vibrate(ms: Long) {
+        runCatching {
+            val vibrator = app.getSystemService(VibratorManager::class.java).defaultVibrator
+            vibrator.vibrate(VibrationEffect.createOneShot(ms, VibrationEffect.DEFAULT_AMPLITUDE))
         }
     }
 

@@ -1,4 +1,4 @@
-# IcHomeLauncher 仕様書（v0.9.0）
+# IcHomeLauncher 仕様書（v0.9.1）
 
 > この文書は Claude Code に実装を依頼するための仕様書。
 > 作者表記は **IcTools**。実装は Claude Code、ビルドは GitHub Actions で行う。
@@ -12,7 +12,7 @@
 - パッケージ名：`com.ictools.ichomelauncher`
 - 種別：Android ホームアプリ（ランチャー）
 - コンセプト：壁紙の上に「ワイヤーフレーム風のフローティングパネル」を自由に配置し、ターミナルとジェスチャーで操作するランチャー
-- バージョン：`versionName = "0.9.0"`, `versionCode = 13`（0.x.x はベータ版）
+- バージョン：`versionName = "0.9.1"`, `versionCode = 14`（0.x.x はベータ版）
 
 ## 2. 技術スタック
 
@@ -683,3 +683,13 @@ com.ictools.ichomelauncher
 - 安全のため `allowFileAccess` は無効（`file://` は読まない）。ピッカーで選んだ `content://` のみ読む
 - 制限：別ファイルを相対パスで参照する CSS・JS・画像は読み込めない（ドキュメントの URI からは同じフォルダのファイルにアクセスできないため）。1 ファイルにまとめた HTML を推奨。外部 URL（CDN など）の読み込みのため `INTERNET` 権限（通常の権限）を追加
 - アプリが裏に回ったら WebView を一時停止し、パネルを閉じたら破棄する
+
+### 42.1 読み込み方式の変更（v0.9.1）
+- v0.9.0 の不具合：永続的な許可を出さないファイルアプリから選ぶと追加に黙って失敗する／`.html` を text/html と扱わないファイルアプリでは選べない／`content://` のまま開くためページに正しい origin が無い
+- 追加時：`takePersistableUriPermission` を試み（失敗しても続行）、中身をアプリ内（`files/html/<ID>.html`）にコピーする。読めない・20MB を超える場合は理由をパネルに表示
+- ファイルピッカーはすべてのファイル（`*/*`）を選べる
+- 表示時：元のファイルが読めればそれを読み（コピーも更新。編集が反映される）、読めなければコピーを使う。文字コードは BOM → `<meta charset>` → UTF-8 の順に判定
+- `loadDataWithBaseURL` で `https://ihl.local/<ID>/index.html` という仮の場所のページとして表示する。localStorage・WebAudio などが通常どおり動く。仮の場所への読み込み（相対パスの別ファイル）は 404 を返し、外部へは出さない
+- `navigator.vibrate` を端末の振動につなぐ（JavaScript インターフェース `IHLNative`。`VIBRATE` 権限＝通常の権限を追加）。1 回最大 1 秒
+- WebView の `allowFileAccess` / `allowContentAccess` は無効（中身はアプリが読んで渡す）
+- 一覧から削除するとアプリ内のコピーも消す
