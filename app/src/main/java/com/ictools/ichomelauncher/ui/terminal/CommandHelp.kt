@@ -53,6 +53,7 @@ object CommandHelp {
                 e("history", "履歴", "history"),
                 e("pad", "タッチパッド", "pad"),
                 e("pattern", "パターン（点をなぞって遊ぶ）", "pattern"),
+                e("html", "HTML ビューア（追加した HTML を表示）", "html"),
                 e("?", "ヘルプパネル", "?"),
                 e("settings", "設定", "settings")
             )

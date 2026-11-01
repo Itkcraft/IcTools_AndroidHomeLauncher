@@ -34,6 +34,8 @@ import com.ictools.ichomelauncher.ui.drawer.DrawerActions
 import com.ictools.ichomelauncher.ui.drawer.DrawerPanel
 import com.ictools.ichomelauncher.ui.pad.PadPanel
 import com.ictools.ichomelauncher.ui.pattern.PatternPanel
+import com.ictools.ichomelauncher.ui.html.HtmlActions
+import com.ictools.ichomelauncher.ui.html.HtmlPanel
 import com.ictools.ichomelauncher.ui.sound.SoundPanel
 import com.ictools.ichomelauncher.ui.help.HelpPanel
 import com.ictools.ichomelauncher.ui.favorites.FavoritesPanel
@@ -303,6 +305,20 @@ private fun PanelContent(id: String, memo: Memo?, vm: LauncherViewModel, onOpenH
         PanelIds.HELP -> HelpPanel(onInsert = vm::insertIntoTerminal)
 
         PanelIds.PATTERN -> PatternPanel()
+
+        PanelIds.HTML -> {
+            val library by vm.htmlLibrary.collectAsStateWithLifecycle()
+            HtmlPanel(
+                library = library,
+                actions = HtmlActions(
+                    add = vm::addHtml,
+                    select = { vm.selectHtml(it) },
+                    remove = vm::removeHtml,
+                    canRead = vm::canReadHtml,
+                    openExternal = vm::openExternal
+                )
+            )
+        }
 
         PanelIds.CALENDAR -> {
             val version by vm.eventsVersion.collectAsStateWithLifecycle()
