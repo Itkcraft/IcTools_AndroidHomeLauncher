@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.9.2（versionCode 15）
+
+- 修正：HTML ビューアで、画面いっぱいに作ったページ（`height: 100%`）が背景色だけで中身が表示されない
+- HTML ビューアで、ページの JavaScript エラーをパネル下部に表示するように
+
 ## v0.9.1（versionCode 14）
 
 - 修正：HTML ビューアで HTML を追加・表示できないことがある

@@ -1,4 +1,4 @@
-# IcHomeLauncher 仕様書（v0.9.1）
+# IcHomeLauncher 仕様書（v0.9.2）
 
 > この文書は Claude Code に実装を依頼するための仕様書。
 > 作者表記は **IcTools**。実装は Claude Code、ビルドは GitHub Actions で行う。
@@ -12,7 +12,7 @@
 - パッケージ名：`com.ictools.ichomelauncher`
 - 種別：Android ホームアプリ（ランチャー）
 - コンセプト：壁紙の上に「ワイヤーフレーム風のフローティングパネル」を自由に配置し、ターミナルとジェスチャーで操作するランチャー
-- バージョン：`versionName = "0.9.1"`, `versionCode = 14`（0.x.x はベータ版）
+- バージョン：`versionName = "0.9.2"`, `versionCode = 15`（0.x.x はベータ版）
 
 ## 2. 技術スタック
 
@@ -693,3 +693,7 @@ com.ictools.ichomelauncher
 - `navigator.vibrate` を端末の振動につなぐ（JavaScript インターフェース `IHLNative`。`VIBRATE` 権限＝通常の権限を追加）。1 回最大 1 秒
 - WebView の `allowFileAccess` / `allowContentAccess` は無効（中身はアプリが読んで渡す）
 - 一覧から削除するとアプリ内のコピーも消す
+
+### 42.2 表示の修正（v0.9.2）
+- WebView の大きさを親いっぱい（MATCH_PARENT）と明示する。指定しないと中身に合わせた高さとして扱われ、`html, body { height: 100% }` で 1 画面に収めるページが高さ 0 になり、背景色しか表示されなかった
+- ページの JavaScript エラー（console のエラー）をパネル下部に表示する
