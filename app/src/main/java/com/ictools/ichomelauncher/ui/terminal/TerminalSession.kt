@@ -81,7 +81,7 @@ class TerminalSession(
             "memo", "memos", "clock", "calendar", "status", "network", "net", "favorites", "favs", "fav", "pad",
             "uninstall", "info", "new",
             "camera", "assist", "light", "ls", "cd", "pwd", "cp", "mv", "mkdir", "rm", "find",
-            "calc", "g", "br", "alias", "unalias", "timer", "alarm", "vol", "bright", "sound", "?",
+            "calc", "g", "br", "alias", "unalias", "timer", "alarm", "vol", "bright", "sound", "pattern", "?",
             "clear", "close", "exit", "version"
         )
 
@@ -173,6 +173,7 @@ class TerminalSession(
                 "help" -> { printHelpPage(1); return }
                 "?" -> { host.openPanel(PanelIds.HELP); return }
                 "sound" -> { host.openPanel(PanelIds.SOUND); return }
+                "pattern" -> { host.openPanel(PanelIds.PATTERN); return }
                 "alias" -> { listAliases(); return }
                 "vol" -> { showVolumes(); return }
                 "bright" -> { showBrightness(); return }

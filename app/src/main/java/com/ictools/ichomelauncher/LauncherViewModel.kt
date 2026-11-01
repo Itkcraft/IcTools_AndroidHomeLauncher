@@ -343,7 +343,8 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
             closed(PanelIds.PAD, min(w - 32f, 300f), 220f, h * 0.55f, 10),
             closed(PanelIds.SOUND, listW, min(440f, h * 0.55f), h * 0.12f, 11),
             closed(PanelIds.HELP, listW, min(460f, h * 0.55f), h * 0.08f, 12),
-            PanelState(PanelIds.TERMINAL, centeredX(termW), termY, termW, termH, isOpen = true, zOrder = 13)
+            closed(PanelIds.PATTERN, min(w - 32f, 300f), min(330f, h * 0.6f), h * 0.12f, 13),
+            PanelState(PanelIds.TERMINAL, centeredX(termW), termY, termW, termH, isOpen = true, zOrder = 14)
         ).map { clamp(it) }
     }
 
@@ -619,6 +620,7 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
             GestureAction.OPEN_PAD -> openPanel(PanelIds.PAD)
             GestureAction.OPEN_SOUND -> openPanel(PanelIds.SOUND)
             GestureAction.OPEN_HELP -> openPanel(PanelIds.HELP)
+            GestureAction.OPEN_PATTERN -> openPanel(PanelIds.PATTERN)
             GestureAction.MEDIA_PLAY_PAUSE -> mediaRepository.playPause()
             GestureAction.MEDIA_NEXT -> mediaRepository.next()
             GestureAction.MEDIA_PREVIOUS -> mediaRepository.previous()
