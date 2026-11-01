@@ -2,6 +2,7 @@ package com.ictools.ichomelauncher
 
 import android.app.Application
 import android.content.Intent
+import android.net.Uri
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
@@ -30,6 +31,9 @@ import com.ictools.ichomelauncher.data.AudioEffects
 import com.ictools.ichomelauncher.data.EqState
 import com.ictools.ichomelauncher.data.AliasRepository
 import com.ictools.ichomelauncher.data.FavoritesRepository
+import com.ictools.ichomelauncher.data.HtmlEntry
+import com.ictools.ichomelauncher.data.HtmlLibrary
+import com.ictools.ichomelauncher.data.HtmlRepository
 import com.ictools.ichomelauncher.data.SoundController
 import com.ictools.ichomelauncher.data.MediaSettings
 import com.ictools.ichomelauncher.data.NetworkMonitor
@@ -98,6 +102,12 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     private val audioEffects = AudioEffects.get(application)
     private val fileShell = FileShell(application)
     private val aliasRepository = AliasRepository(application)
+    private val htmlRepository = HtmlRepository(application)
+
+    private val _htmlLibrary = MutableStateFlow(HtmlLibrary())
+
+    /** HTML ビューアの一覧と表示中のファイル */
+    val htmlLibrary: StateFlow<HtmlLibrary> = _htmlLibrary.asStateFlow()
 
     /** 音量・明るさ */
     val sound = SoundController(application)
@@ -252,6 +262,7 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
             _launchHistory.value = historyRepository.loadLaunches()
             _favoriteKeys.value = favoritesRepository.load()
             aliases = aliasRepository.load()
+            _htmlLibrary.value = htmlRepository.load()
         }
         mediaRepository.start()
         // 表示日数が変わったら予定を読み直す
@@ -344,7 +355,8 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
             closed(PanelIds.SOUND, listW, min(440f, h * 0.55f), h * 0.12f, 11),
             closed(PanelIds.HELP, listW, min(460f, h * 0.55f), h * 0.08f, 12),
             closed(PanelIds.PATTERN, min(w - 32f, 300f), min(330f, h * 0.6f), h * 0.12f, 13),
-            PanelState(PanelIds.TERMINAL, centeredX(termW), termY, termW, termH, isOpen = true, zOrder = 14)
+            closed(PanelIds.HTML, min(w - 32f, 380f), min(540f, h * 0.7f), h * 0.08f, 14),
+            PanelState(PanelIds.TERMINAL, centeredX(termW), termY, termW, termH, isOpen = true, zOrder = 15)
         ).map { clamp(it) }
     }
 
@@ -621,6 +633,7 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
             GestureAction.OPEN_SOUND -> openPanel(PanelIds.SOUND)
             GestureAction.OPEN_HELP -> openPanel(PanelIds.HELP)
             GestureAction.OPEN_PATTERN -> openPanel(PanelIds.PATTERN)
+            GestureAction.OPEN_HTML -> openPanel(PanelIds.HTML)
             GestureAction.MEDIA_PLAY_PAUSE -> mediaRepository.playPause()
             GestureAction.MEDIA_NEXT -> mediaRepository.next()
             GestureAction.MEDIA_PREVIOUS -> mediaRepository.previous()
@@ -747,6 +760,38 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     fun reorderFavorites(keys: List<String>) {
         saveFavorites(keys + _favoriteKeys.value.filterNot { it in keys })
     }
+
+    // ---- HTML ビューア ----
+
+    /** ファイルピッカーで選んだ HTML を一覧に追加して表示する（同じファイルは追加し直さない） */
+    fun addHtml(uri: Uri) {
+        viewModelScope.launch {
+            val entry = htmlRepository.prepare(uri) ?: return@launch
+            val lib = _htmlLibrary.value
+            val entries = if (lib.entries.any { it.uri == entry.uri }) lib.entries else lib.entries + entry
+            saveHtml(HtmlLibrary(entries, entry.uri))
+        }
+    }
+
+    fun selectHtml(uri: String) = saveHtml(_htmlLibrary.value.copy(selected = uri))
+
+    /** 一覧から削除する（表示中なら一覧の先頭に切り替え、読み取り許可も返す） */
+    fun removeHtml(entry: HtmlEntry) {
+        htmlRepository.release(entry)
+        val entries = _htmlLibrary.value.entries.filterNot { it.uri == entry.uri }
+        val selected = _htmlLibrary.value.selected.takeIf { it != entry.uri } ?: entries.firstOrNull()?.uri
+        saveHtml(HtmlLibrary(entries, selected))
+    }
+
+    fun canReadHtml(entry: HtmlEntry): Boolean = htmlRepository.canRead(entry)
+
+    private fun saveHtml(library: HtmlLibrary) {
+        _htmlLibrary.value = library
+        viewModelScope.launch { htmlRepository.save(library) }
+    }
+
+    /** ページ内のリンクなどを外部アプリで開く */
+    fun openExternal(uri: Uri): Boolean = startActivitySafely(Intent(Intent.ACTION_VIEW, uri))
 
     // ---- アンインストール・アプリ情報 ----
 

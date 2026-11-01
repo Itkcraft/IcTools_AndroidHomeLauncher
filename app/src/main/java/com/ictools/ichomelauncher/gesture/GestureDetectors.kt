@@ -10,6 +10,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.input.pointer.AwaitPointerEventScope
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.changedToUp
@@ -31,6 +32,25 @@ private val DOUBLE_TAP_SLOP = 96.dp
 private const val PINCH_RATIO = 0.3f
 
 /**
+ * 画面全体のピンチを検出しない領域（画面座標）。
+ * 中でピンチ操作を使うパネル（HTML ビューアの拡大縮小など）が自分の範囲を登録する。
+ */
+object PinchExclusion {
+    // 画面の再描画には関わらないので通常のマップ（メインスレッドからのみ触る）
+    private val rects = HashMap<String, Rect>()
+
+    fun set(key: String, rect: Rect) {
+        rects[key] = rect
+    }
+
+    fun remove(key: String) {
+        rects.remove(key)
+    }
+
+    fun contains(pos: Offset): Boolean = rects.values.any { it.contains(pos) }
+}
+
+/**
  * ピンチ検出（画面全体）。ルートに付け、Initial パスで 2 本指の距離変化だけを監視する。
  * イベントは消費しないため、パネル側の 1 本指操作を邪魔しない。
  */
@@ -42,6 +62,7 @@ fun Modifier.pinchGestures(onGesture: (GestureType) -> Unit): Modifier {
             awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
             var startDistance = 0f
             var fired = false
+            var excluded = false
             do {
                 val event = awaitPointerEvent(PointerEventPass.Initial)
                 val pressed = event.changes.filter { it.pressed }
@@ -49,7 +70,9 @@ fun Modifier.pinchGestures(onGesture: (GestureType) -> Unit): Modifier {
                     val distance = (pressed[0].position - pressed[1].position).getDistance()
                     if (startDistance <= 0f) {
                         startDistance = distance
-                    } else if (!fired) {
+                        // 2本目の指が触れた時点で、どちらかが除外領域（Web ページの拡大縮小など）にあれば無視する
+                        excluded = pressed.take(2).any { PinchExclusion.contains(it.position) }
+                    } else if (!fired && !excluded) {
                         val ratio = distance / startDistance
                         if (ratio >= 1f + PINCH_RATIO) {
                             fired = true

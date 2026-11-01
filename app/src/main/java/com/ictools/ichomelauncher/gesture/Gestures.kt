@@ -60,6 +60,7 @@ enum class GestureAction(val id: String, val label: String) {
     OPEN_SOUND("open_sound", "open sound"),
     OPEN_HELP("open_help", "open help"),
     OPEN_PATTERN("open_pattern", "open pattern"),
+    OPEN_HTML("open_html", "open html"),
     MEDIA_PLAY_PAUSE("media_play_pause", "media play/pause"),
     MEDIA_NEXT("media_next", "media next"),
     MEDIA_PREVIOUS("media_previous", "media previous"),

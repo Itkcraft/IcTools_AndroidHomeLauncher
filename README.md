@@ -4,7 +4,7 @@
 
 - ホーム画面上の表示名：**IHL**
 - パッケージ名：`com.ictools.ichomelauncher`
-- バージョン：**v0.8.0**（ベータ版）
+- バージョン：**v0.9.0**（ベータ版）
 - 作者：IcTools
 - 対応 OS：Android 12（API 31）以降／縦・横画面（端末の自動回転に従う。設定で縦固定にもできる）
 
@@ -13,7 +13,7 @@
 ## 機能
 
 - OS の壁紙をそのまま表示し、ウィンドウ背後のぼかし（端末が対応している場合）とスモーク（暗さ）を重ねる
-- フローティングパネル（Terminal / Apps / Settings / Media / Schedule / History / Memo / Clock / Calendar / Status / Network / Favorites / Pad / Sound / Help / Pattern）
+- フローティングパネル（Terminal / Apps / Settings / Media / Schedule / History / Memo / Clock / Calendar / Status / Network / Favorites / Pad / Sound / Help / Pattern / HTML）
   - タイトルバーのドラッグで移動、右下の三角ハンドルでリサイズ（最小 160×120dp）
   - タッチしたパネルが最前面になる
   - タイトルバーの `⋮` から位置・サイズを固定できる（固定中のパネルは閉じられない）
@@ -32,6 +32,7 @@
 - 通信パネル：Wi-Fi／モバイルの接続状態・電波強度・リンク速度・SSID
 - お気に入りパネル：よく使うアプリをグリッド／リストで表示、長押しドラッグで並び替え
 - 音量・明るさパネル：音量4種類と明るさ・自動調整
+- HTML ビューア：ファイルピッカーで追加した HTML を表示（JavaScript 有効、一覧は再起動後も残る）
 - パターンパネル：パターン認証のような点をなぞって線をつなぐ手遊び（3×3〜5×5）
 - ヘルプパネル：コマンドをカテゴリと検索で探し、タップでターミナルに入力
 - タッチパッドパネル：パネル内のスワイプ・タップに好きなアクションを割り当てられる操作スペース
@@ -72,6 +73,7 @@
 | `bright` / `bright 60` / `bright auto` | 画面の明るさ |
 | `sound` / `?` | 音量・明るさパネル／ヘルプパネルを開く |
 | `pattern` | パターンパネルを開く |
+| `html` | HTML ビューアを開く |
 | `help` / `help 3` / `help calc` | ヘルプ（ページ表示／コマンドの説明） |
 | `light` / `light on` / `light off` | ライトの切り替え／点灯／消灯 |
 | `fav` / `fav add <アプリ名>` / `fav rm <アプリ名>` | お気に入りの一覧／登録／解除 |
@@ -104,7 +106,7 @@
 | `pinch_in` | 画面全体 | `none` |
 | `pinch_out` | 画面全体 | `close_focused` |
 
-選べるアクション：`none` / `open_terminal` / `open_drawer` / `open_settings` / `open_media` / `open_schedule` / `open_history` / `open_clock` / `open_calendar` / `open_status` / `open_network` / `open_favorites` / `open_pad` / `media_play_pause` / `media_next` / `media_previous` / `light_toggle` / `assist` / `open_sound` / `open_help` / `open_pattern` / `new_memo` / `close_focused` / `close_all`
+選べるアクション：`none` / `open_terminal` / `open_drawer` / `open_settings` / `open_media` / `open_schedule` / `open_history` / `open_clock` / `open_calendar` / `open_status` / `open_network` / `open_favorites` / `open_pad` / `media_play_pause` / `media_next` / `media_previous` / `light_toggle` / `assist` / `open_sound` / `open_help` / `open_pattern` / `open_html` / `new_memo` / `close_focused` / `close_all`
 
 - 画面端のシステムジェスチャー領域（ホーム・戻る）で始まったスワイプは無視します
 - Pad パネルでは、背景とは別に tap / swipe（上下左右）/ double_tap / long_press の割り当てを設定できます（設定パネルの「タッチパッド」）
