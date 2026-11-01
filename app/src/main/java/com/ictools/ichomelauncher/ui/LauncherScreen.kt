@@ -308,14 +308,19 @@ private fun PanelContent(id: String, memo: Memo?, vm: LauncherViewModel, onOpenH
 
         PanelIds.HTML -> {
             val library by vm.htmlLibrary.collectAsStateWithLifecycle()
+            val message by vm.htmlMessage.collectAsStateWithLifecycle()
             HtmlPanel(
                 library = library,
+                message = message,
                 actions = HtmlActions(
                     add = vm::addHtml,
                     select = { vm.selectHtml(it) },
                     remove = vm::removeHtml,
                     canRead = vm::canReadHtml,
-                    openExternal = vm::openExternal
+                    read = vm::readHtml,
+                    openExternal = vm::openExternal,
+                    vibrate = vm::vibrate,
+                    dismissMessage = vm::dismissHtmlMessage
                 )
             )
         }
