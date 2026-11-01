@@ -33,6 +33,7 @@ import com.ictools.ichomelauncher.ui.clock.ClockPanel
 import com.ictools.ichomelauncher.ui.drawer.DrawerActions
 import com.ictools.ichomelauncher.ui.drawer.DrawerPanel
 import com.ictools.ichomelauncher.ui.pad.PadPanel
+import com.ictools.ichomelauncher.ui.pattern.PatternPanel
 import com.ictools.ichomelauncher.ui.sound.SoundPanel
 import com.ictools.ichomelauncher.ui.help.HelpPanel
 import com.ictools.ichomelauncher.ui.favorites.FavoritesPanel
@@ -300,6 +301,8 @@ private fun PanelContent(id: String, memo: Memo?, vm: LauncherViewModel, onOpenH
         PanelIds.SOUND -> SoundPanel(sound = vm.sound, requestWriteSettings = vm::requestWriteSettings)
 
         PanelIds.HELP -> HelpPanel(onInsert = vm::insertIntoTerminal)
+
+        PanelIds.PATTERN -> PatternPanel()
 
         PanelIds.CALENDAR -> {
             val version by vm.eventsVersion.collectAsStateWithLifecycle()

@@ -52,6 +52,7 @@ object CommandHelp {
                 e("net | network", "通信", "net", "network"),
                 e("history", "履歴", "history"),
                 e("pad", "タッチパッド", "pad"),
+                e("pattern", "パターン（点をなぞって遊ぶ）", "pattern"),
                 e("?", "ヘルプパネル", "?"),
                 e("settings", "設定", "settings")
             )
