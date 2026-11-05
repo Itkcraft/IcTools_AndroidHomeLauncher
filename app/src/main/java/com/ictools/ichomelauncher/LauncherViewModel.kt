@@ -32,6 +32,8 @@ import com.ictools.ichomelauncher.data.AssistMethod
 import com.ictools.ichomelauncher.data.AudioEffects
 import com.ictools.ichomelauncher.data.EqState
 import com.ictools.ichomelauncher.data.AliasRepository
+import com.ictools.ichomelauncher.data.CategoryData
+import com.ictools.ichomelauncher.data.CategoryRepository
 import com.ictools.ichomelauncher.data.FavoritesRepository
 import com.ictools.ichomelauncher.data.HtmlAddResult
 import com.ictools.ichomelauncher.data.HtmlEntry
@@ -106,6 +108,12 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     private val fileShell = FileShell(application)
     private val aliasRepository = AliasRepository(application)
     private val htmlRepository = HtmlRepository(application)
+    private val categoryRepository = CategoryRepository(application)
+
+    private val _categories = MutableStateFlow(CategoryData())
+
+    /** アプリの種類の設定（個別の変更と、自分で作った種類） */
+    val categories: StateFlow<CategoryData> = _categories.asStateFlow()
 
     private val _htmlLibrary = MutableStateFlow(HtmlLibrary())
 
@@ -271,6 +279,7 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
             _favoriteKeys.value = favoritesRepository.load()
             aliases = aliasRepository.load()
             _htmlLibrary.value = htmlRepository.load()
+            _categories.value = categoryRepository.load()
         }
         mediaRepository.start()
         // 表示日数が変わったら予定を読み直す
@@ -764,9 +773,38 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         if (app.key in _favoriteKeys.value) removeFavorite(app) else addFavorite(app)
     }
 
-    /** 並び替え（パネルに表示中のキーの順に保存。表示されていない＝未インストールのキーは末尾に残す） */
+    /**
+     * 並び替え。[keys] はパネルに表示中のアプリの新しい順番。
+     * 種類のタブで絞り込んでいる場合や未インストールのアプリがある場合も、表示されていないアプリの位置は変えず、
+     * 表示中のアプリが入っていた場所だけを新しい順番で埋め直す。
+     */
     fun reorderFavorites(keys: List<String>) {
-        saveFavorites(keys + _favoriteKeys.value.filterNot { it in keys })
+        val visible = keys.toSet()
+        val queue = ArrayDeque(keys)
+        val merged = _favoriteKeys.value.map { k -> if (k in visible) queue.removeFirst() else k }
+        saveFavorites(merged + queue)
+    }
+
+    // ---- アプリの種類 ----
+
+    fun setFavoritesCategoryTabs(enabled: Boolean) = viewModelScope.launch { settingsRepository.setFavoritesCategoryTabs(enabled) }
+
+    /**
+     * アプリの種類を設定する。null なら自動に戻す。
+     * 一覧に無い名前なら新しい種類として作る。
+     */
+    fun setCategory(app: AppEntry, category: String?) {
+        val cur = _categories.value
+        val name = category?.trim()?.takeIf { it.isNotEmpty() }
+        val overrides = if (name == null || name == app.autoCategory && name !in cur.custom) {
+            cur.overrides - app.key
+        } else {
+            cur.overrides + (app.key to name)
+        }
+        val custom = if (name != null && name !in cur.all) cur.custom + name else cur.custom
+        val next = CategoryData(overrides, custom)
+        _categories.value = next
+        viewModelScope.launch { categoryRepository.save(next) }
     }
 
     // ---- HTML ビューア ----

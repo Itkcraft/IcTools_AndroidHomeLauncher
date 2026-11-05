@@ -84,6 +84,7 @@ data class LauncherSettings(
     val gestures: Map<GestureType, GestureAction> = GestureType.defaultMapping(),
     val padGestures: Map<GestureType, GestureAction> = GestureType.defaultPadMapping(),
     val favoritesGrid: Boolean = true,
+    val favoritesCategoryTabs: Boolean = true,    // お気に入りパネルに種類のタブを出す
     val assistMethod: AssistMethod = AssistMethod.AUTO,
     val snapEnabled: Boolean = false,             // グリッド（スナップ）モード
     val gridSizeDp: Int = DEFAULT_GRID_SIZE,      // グリッドの間隔（dp）
@@ -114,6 +115,7 @@ class SettingsRepository(private val context: Context) {
     private val keyGestures = stringPreferencesKey("gesture_map")
     private val keyPadGestures = stringPreferencesKey("pad_gesture_map")
     private val keyFavoritesGrid = booleanPreferencesKey("favorites_grid")
+    private val keyFavoritesTabs = booleanPreferencesKey("favorites_category_tabs")
     private val keyAssistMethod = stringPreferencesKey("assist_method")
     private val keySnap = booleanPreferencesKey("snap_enabled")
     private val keyGridSize = intPreferencesKey("grid_size_dp")
@@ -157,6 +159,7 @@ class SettingsRepository(private val context: Context) {
             gestures = decodeGestures(this[keyGestures], GestureType.defaultMapping()),
             padGestures = decodeGestures(this[keyPadGestures], GestureType.defaultPadMapping()),
             favoritesGrid = this[keyFavoritesGrid] ?: true,
+            favoritesCategoryTabs = this[keyFavoritesTabs] ?: true,
             assistMethod = AssistMethod.fromId(this[keyAssistMethod]) ?: AssistMethod.AUTO,
             snapEnabled = this[keySnap] ?: false,
             gridSizeDp = this[keyGridSize]?.takeIf { it in LauncherSettings.GRID_SIZE_OPTIONS } ?: LauncherSettings.DEFAULT_GRID_SIZE,
@@ -233,6 +236,10 @@ class SettingsRepository(private val context: Context) {
 
     suspend fun setAssistMethod(method: AssistMethod) {
         context.ihlDataStore.edit { it[keyAssistMethod] = method.id }
+    }
+
+    suspend fun setFavoritesCategoryTabs(enabled: Boolean) {
+        context.ihlDataStore.edit { it[keyFavoritesTabs] = enabled }
     }
 
     suspend fun setFavoritesGrid(grid: Boolean) {

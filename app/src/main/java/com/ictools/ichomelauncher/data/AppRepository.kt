@@ -33,7 +33,8 @@ data class AppEntry(
     val user: UserHandle,
     val userSerial: Long,
     val installTime: Long = 0,      // 初回インストール日時（取得できなければ 0）
-    val isSystem: Boolean = false   // プリインストール（システム）アプリか
+    val isSystem: Boolean = false,  // プリインストール（システム）アプリか
+    val autoCategory: String = AppCategories.OTHER  // アプリが申告しているカテゴリから決めた種類
 ) {
     /** 一覧の key・履歴の保存に使う一意な文字列（再起動後も変わらない） */
     val key: String get() = "${component.flattenToString()}#$userSerial"
@@ -100,7 +101,8 @@ class AppRepository(context: Context, private val scope: CoroutineScope) {
                     user = info.user,
                     userSerial = userManager.getSerialNumberForUser(info.user),
                     installTime = installTime,
-                    isSystem = isSystem
+                    isSystem = isSystem,
+                    autoCategory = AppCategories.fromAndroid(info.applicationInfo)
                 ) to info
             }
             activityInfos = pairs.associate { (entry, info) -> entry.key to info }

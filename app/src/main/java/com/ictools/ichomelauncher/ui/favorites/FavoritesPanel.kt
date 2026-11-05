@@ -6,6 +6,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -29,6 +30,7 @@ import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -45,6 +47,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import com.ictools.ichomelauncher.data.AppEntry
+import com.ictools.ichomelauncher.data.CategoryData
 import com.ictools.ichomelauncher.ui.theme.IhlColors
 import com.ictools.ichomelauncher.ui.theme.SmallCutShape
 import kotlin.math.max
@@ -65,6 +68,8 @@ fun FavoritesPanel(
     favorites: List<AppEntry>,
     grid: Boolean,
     onToggleGrid: () -> Unit,
+    showCategoryTabs: Boolean,
+    categories: CategoryData,
     loadIcon: suspend (AppEntry, Int) -> ImageBitmap?,
     onLaunch: (AppEntry) -> Unit,
     onReorder: (List<String>) -> Unit
@@ -88,11 +93,30 @@ fun FavoritesPanel(
             )
             return@Column
         }
+        // ---- 種類のタブ（お気に入りにある種類だけ。設定で非表示にできる） ----
+        var selectedTab by rememberSaveable { mutableStateOf<String?>(null) }  // null は「すべて」
+        val present = remember(favorites, categories) {
+            val inUse = favorites.map { categories.of(it) }.toSet()
+            categories.all.filter { it in inUse } + inUse.filterNot { it in categories.all }
+        }
+        val tab = selectedTab?.takeIf { showCategoryTabs && it in present }
+        if (showCategoryTabs && present.size > 1) {
+            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(bottom = 2.dp)) {
+                CategoryTab("すべて", tab == null) { selectedTab = null }
+                present.forEach { c -> CategoryTab(c, tab == c) { selectedTab = c } }
+            }
+        }
+        val shown = remember(favorites, categories, tab) {
+            if (tab == null) favorites else favorites.filter { categories.of(it) == tab }
+        }
         BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
             val columns = if (grid) max(1, (maxWidth / GRID_CELL_MIN_WIDTH).toInt()) else 1
             val cellW = maxWidth / columns
             val cellH = if (grid) GRID_CELL_HEIGHT else LIST_ROW_HEIGHT
-            ReorderableGrid(favorites, columns, cellW, cellH, grid, loadIcon, onLaunch, onReorder)
+            // タブを切り替えたら並び替えの状態を作り直す
+            key(tab) {
+                ReorderableGrid(shown, columns, cellW, cellH, grid, loadIcon, onLaunch, onReorder)
+            }
         }
     }
 }
@@ -209,6 +233,16 @@ private fun ReorderableGrid(
             )
         }
     }
+}
+
+@Composable
+private fun CategoryTab(label: String, selected: Boolean, onClick: () -> Unit) {
+    Text(
+        if (selected) "[$label]" else " $label ",
+        color = if (selected) IhlColors.Accent else IhlColors.TextDim,
+        fontSize = 12.sp,
+        modifier = Modifier.clickable(onClick = onClick).padding(end = 4.dp, top = 2.dp, bottom = 2.dp)
+    )
 }
 
 @Composable

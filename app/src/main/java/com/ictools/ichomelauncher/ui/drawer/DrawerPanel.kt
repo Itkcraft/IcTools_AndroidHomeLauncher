@@ -39,6 +39,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.ictools.ichomelauncher.data.AppEntry
+import com.ictools.ichomelauncher.data.CategoryData
 import com.ictools.ichomelauncher.ui.theme.IhlColors
 import com.ictools.ichomelauncher.ui.theme.IhlTextStyle
 import com.ictools.ichomelauncher.ui.theme.SmallCutShape
@@ -48,6 +49,7 @@ private val ICON_SIZE = 32.dp
 /** ドロワーパネルから呼ぶ操作 */
 class DrawerActions(
     val launch: (AppEntry) -> Unit,
+    val setCategory: (AppEntry, String?) -> Unit,
     val toggleFavorite: (AppEntry) -> Unit,
     val uninstall: (AppEntry) -> Unit,
     val openAppInfo: (AppEntry) -> Unit
@@ -62,6 +64,7 @@ fun DrawerPanel(
     apps: List<AppEntry>,
     newApps: List<AppEntry>,
     favoriteKeys: Set<String>,
+    categories: CategoryData,
     loadIcon: suspend (AppEntry, Int) -> ImageBitmap?,
     actions: DrawerActions
 ) {
@@ -101,12 +104,12 @@ fun DrawerPanel(
             if (query.isBlank() && newApps.isNotEmpty()) {
                 item(key = "header-new") { SectionLabel("NEW (${newApps.size})") }
                 items(newApps, key = { "new-" + it.key }) { app ->
-                    AppRow(app, loadIcon, isFavorite = app.key in favoriteKeys, isNew = true, actions = actions)
+                    AppRow(app, loadIcon, isFavorite = app.key in favoriteKeys, isNew = true, categories = categories, actions = actions)
                 }
                 item(key = "header-all") { SectionLabel("ALL") }
             }
             items(filtered, key = { it.key }) { app ->
-                AppRow(app, loadIcon, isFavorite = app.key in favoriteKeys, isNew = app.key in newKeys, actions = actions)
+                AppRow(app, loadIcon, isFavorite = app.key in favoriteKeys, isNew = app.key in newKeys, categories = categories, actions = actions)
             }
         }
     }
@@ -125,11 +128,26 @@ private fun AppRow(
     loadIcon: suspend (AppEntry, Int) -> ImageBitmap?,
     isFavorite: Boolean,
     isNew: Boolean,
+    categories: CategoryData,
     actions: DrawerActions
 ) {
     val sizePx = with(LocalDensity.current) { ICON_SIZE.roundToPx() }
     val icon by produceState<ImageBitmap?>(null, app.key) { value = loadIcon(app, sizePx) }
     var menu by remember { mutableStateOf(false) }
+    var categoryDialog by remember { mutableStateOf(false) }
+    if (categoryDialog) {
+        CategoryDialog(
+            app = app,
+            current = categories.of(app),
+            isOverridden = app.key in categories.overrides,
+            categories = categories.all,
+            onSelect = { c ->
+                actions.setCategory(app, c)
+                categoryDialog = false
+            },
+            onDismiss = { categoryDialog = false }
+        )
+    }
 
     Row(
         Modifier
@@ -157,6 +175,13 @@ private fun AppRow(
                     onClick = {
                         menu = false
                         actions.toggleFavorite(app)
+                    }
+                )
+                DropdownMenuItem(
+                    text = { Text("種類を変更（${categories.of(app)}）") },
+                    onClick = {
+                        menu = false
+                        categoryDialog = true
                     }
                 )
                 DropdownMenuItem(

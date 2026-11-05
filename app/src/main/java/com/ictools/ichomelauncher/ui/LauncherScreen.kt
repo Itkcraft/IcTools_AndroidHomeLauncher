@@ -178,13 +178,16 @@ private fun PanelContent(id: String, memo: Memo?, vm: LauncherViewModel, onOpenH
             val apps by vm.apps.collectAsStateWithLifecycle()
             val favorites by vm.favoriteKeys.collectAsStateWithLifecycle()
             val newApps by vm.newApps.collectAsStateWithLifecycle()
+            val categories by vm.categories.collectAsStateWithLifecycle()
             DrawerPanel(
                 apps = apps,
                 newApps = newApps,
                 favoriteKeys = favorites.toSet(),
+                categories = categories,
                 loadIcon = vm::loadIcon,
                 actions = DrawerActions(
                     launch = { vm.launchApp(it) },
+                    setCategory = vm::setCategory,
                     toggleFavorite = vm::toggleFavorite,
                     uninstall = { vm.uninstall(it) },
                     openAppInfo = { vm.openAppInfo(it) }
@@ -221,7 +224,8 @@ private fun PanelContent(id: String, memo: Memo?, vm: LauncherViewModel, onOpenH
                     setSnap = { vm.setSnap(it) },
                     setGridSize = { vm.setGridSize(it) },
                     alignAllToGrid = vm::alignAllToGrid,
-                    setRotationEnabled = { vm.setRotationEnabled(it) }
+                    setRotationEnabled = { vm.setRotationEnabled(it) },
+                    setFavoritesCategoryTabs = { vm.setFavoritesCategoryTabs(it) }
                 )
             )
         }
@@ -366,10 +370,13 @@ private fun PanelContent(id: String, memo: Memo?, vm: LauncherViewModel, onOpenH
                 keys.mapNotNull { byKey[it] }
             }
             val settings by vm.settings.collectAsStateWithLifecycle()
+            val categories by vm.categories.collectAsStateWithLifecycle()
             FavoritesPanel(
                 favorites = favorites,
                 grid = settings.favoritesGrid,
                 onToggleGrid = { vm.toggleFavoritesGrid() },
+                showCategoryTabs = settings.favoritesCategoryTabs,
+                categories = categories,
                 loadIcon = vm::loadIcon,
                 onLaunch = { vm.launchApp(it) },
                 onReorder = vm::reorderFavorites
