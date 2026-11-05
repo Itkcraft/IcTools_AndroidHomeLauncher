@@ -24,8 +24,8 @@ android {
         applicationId = "com.ictools.ichomelauncher"
         minSdk = 31
         targetSdk = 36
-        versionCode = 16
-        versionName = "0.10.0"
+        versionCode = 17
+        versionName = "0.10.1"
     }
 
     signingConfigs {

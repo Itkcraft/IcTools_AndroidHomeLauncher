@@ -5,7 +5,17 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -74,16 +84,57 @@ fun FavoritesPanel(
     onLaunch: (AppEntry) -> Unit,
     onReorder: (List<String>) -> Unit
 ) {
+    // ---- 種類のタブ（お気に入りにある種類だけ。設定で非表示にできる） ----
+    var selectedTab by rememberSaveable { mutableStateOf<String?>(null) }  // null は「すべて」
+    val present = remember(favorites, categories) {
+        val inUse = favorites.map { categories.of(it) }.toSet()
+        categories.all.filter { it in inUse } + inUse.filterNot { it in categories.all }
+    }
+    val tabsEnabled = showCategoryTabs && present.size > 1
+    // 切り替えの順番：すべて → 各種類（端まで行ったら反対側に戻る）
+    val tabs: List<String?> = remember(present) { listOf<String?>(null) + present }
+    val tab = selectedTab?.takeIf { tabsEnabled && it in present }
+    // 直前の切り替えの向き（アニメーションの向き用。+1 は次へ、-1 は前へ）
+    var direction by remember { mutableIntStateOf(1) }
+
+    fun move(step: Int) {
+        if (!tabsEnabled) return
+        // スワイプの検出は長く動き続けるため、その時点の選択を状態から読み直す
+        val current = selectedTab?.takeIf { it in present }
+        val i = tabs.indexOf(current).coerceAtLeast(0)
+        direction = step
+        selectedTab = tabs[(i + step + tabs.size) % tabs.size]
+    }
+
+    val shown = remember(favorites, categories, tab) {
+        if (tab == null) favorites else favorites.filter { categories.of(it) == tab }
+    }
+
     Column(Modifier.fillMaxSize().padding(start = 6.dp, top = 2.dp, end = 6.dp)) {
-        // ---- ヘッダー：件数と表示切り替え ----
+        // ---- ヘッダー：件数　< 種類 >　表示切り替え ----
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Text("${favorites.size} apps", color = IhlColors.TextDim, fontSize = 11.sp, modifier = Modifier.weight(1f))
-            Text(
-                if (grid) "[grid] list" else "grid [list]",
-                color = IhlColors.TextDim,
-                fontSize = 11.sp,
-                modifier = Modifier.clickable(onClick = onToggleGrid).padding(4.dp)
-            )
+            Text("${shown.size} apps", color = IhlColors.TextDim, fontSize = 11.sp, modifier = Modifier.weight(1f))
+            if (tabsEnabled) {
+                Text("<", color = IhlColors.Accent, modifier = Modifier.clickable { move(-1) }.padding(horizontal = 8.dp, vertical = 4.dp))
+                Text(
+                    tab ?: "すべて",
+                    color = IhlColors.Accent,
+                    fontSize = 12.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.widthIn(min = 56.dp, max = 140.dp)
+                )
+                Text(">", color = IhlColors.Accent, modifier = Modifier.clickable { move(1) }.padding(horizontal = 8.dp, vertical = 4.dp))
+            }
+            Box(Modifier.weight(1f), contentAlignment = Alignment.CenterEnd) {
+                Text(
+                    if (grid) "grid" else "list",
+                    color = IhlColors.TextDim,
+                    fontSize = 11.sp,
+                    modifier = Modifier.clickable(onClick = onToggleGrid).padding(4.dp)
+                )
+            }
         }
         if (favorites.isEmpty()) {
             Text("no favorites", color = IhlColors.TextDim)
@@ -93,33 +144,51 @@ fun FavoritesPanel(
             )
             return@Column
         }
-        // ---- 種類のタブ（お気に入りにある種類だけ。設定で非表示にできる） ----
-        var selectedTab by rememberSaveable { mutableStateOf<String?>(null) }  // null は「すべて」
-        val present = remember(favorites, categories) {
-            val inUse = favorites.map { categories.of(it) }.toSet()
-            categories.all.filter { it in inUse } + inUse.filterNot { it in categories.all }
-        }
-        val tab = selectedTab?.takeIf { showCategoryTabs && it in present }
-        if (showCategoryTabs && present.size > 1) {
-            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(bottom = 2.dp)) {
-                CategoryTab("すべて", tab == null) { selectedTab = null }
-                present.forEach { c -> CategoryTab(c, tab == c) { selectedTab = c } }
-            }
-        }
-        val shown = remember(favorites, categories, tab) {
-            if (tab == null) favorites else favorites.filter { categories.of(it) == tab }
-        }
-        BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
+        val swipeThreshold = with(LocalDensity.current) { SWIPE_THRESHOLD.toPx() }
+        BoxWithConstraints(
+            Modifier
+                .weight(1f)
+                .fillMaxWidth()
+                // 左右のスワイプで種類を切り替える（タップ・縦スクロール・長押しの並び替えとは別に検出）
+                .pointerInput(tabsEnabled, tabs) {
+                    if (!tabsEnabled) return@pointerInput
+                    var total = 0f
+                    detectHorizontalDragGestures(
+                        onDragStart = { total = 0f },
+                        onDragEnd = {
+                            when {
+                                total <= -swipeThreshold -> move(1)
+                                total >= swipeThreshold -> move(-1)
+                            }
+                        }
+                    ) { change, amount ->
+                        change.consume()
+                        total += amount
+                    }
+                }
+        ) {
             val columns = if (grid) max(1, (maxWidth / GRID_CELL_MIN_WIDTH).toInt()) else 1
             val cellW = maxWidth / columns
             val cellH = if (grid) GRID_CELL_HEIGHT else LIST_ROW_HEIGHT
-            // タブを切り替えたら並び替えの状態を作り直す
-            key(tab) {
-                ReorderableGrid(shown, columns, cellW, cellH, grid, loadIcon, onLaunch, onReorder)
+            // 種類を切り替えたら横にスライドして入れ替える（並び替えの状態も作り直す）
+            AnimatedContent(
+                targetState = tab,
+                transitionSpec = {
+                    val d = direction
+                    (slideInHorizontally(tween(220)) { w -> w * d } + fadeIn(tween(220))) togetherWith
+                        (slideOutHorizontally(tween(220)) { w -> -w * d } + fadeOut(tween(220)))
+                },
+                label = "favorites-tab"
+            ) { t ->
+                val list = if (t == tab) shown else if (t == null) favorites else favorites.filter { categories.of(it) == t }
+                ReorderableGrid(list, columns, cellW, cellH, grid, loadIcon, onLaunch, onReorder)
             }
         }
     }
 }
+
+/** 種類を切り替えるスワイプの距離 */
+private val SWIPE_THRESHOLD = 56.dp
 
 @Composable
 private fun ReorderableGrid(
@@ -233,16 +302,6 @@ private fun ReorderableGrid(
             )
         }
     }
-}
-
-@Composable
-private fun CategoryTab(label: String, selected: Boolean, onClick: () -> Unit) {
-    Text(
-        if (selected) "[$label]" else " $label ",
-        color = if (selected) IhlColors.Accent else IhlColors.TextDim,
-        fontSize = 12.sp,
-        modifier = Modifier.clickable(onClick = onClick).padding(end = 4.dp, top = 2.dp, bottom = 2.dp)
-    )
 }
 
 @Composable
