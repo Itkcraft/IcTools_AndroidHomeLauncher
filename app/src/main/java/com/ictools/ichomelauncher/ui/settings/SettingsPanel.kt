@@ -73,7 +73,8 @@ class SettingsActions(
     val setSnap: (Boolean) -> Unit,
     val setGridSize: (Int) -> Unit,
     val alignAllToGrid: () -> Unit,
-    val setRotationEnabled: (Boolean) -> Unit
+    val setRotationEnabled: (Boolean) -> Unit,
+    val setFavoritesCategoryTabs: (Boolean) -> Unit
 )
 
 /** 設定パネルの中身：背景／ジェスチャー／パネル／情報 */
@@ -194,6 +195,12 @@ fun SettingsPanel(settings: LauncherSettings, blurAvailable: Boolean, permission
         Text("ON：端末の自動回転に従う（縦と横で配置は別々に保存）／OFF：縦画面に固定", color = IhlColors.TextDim, fontSize = 10.sp, lineHeight = 13.sp)
         Spacer(Modifier.height(10.dp))
         WireButton("パネル配置をリセット（今の向き）", onClick = actions.resetLayout)
+        Spacer(Modifier.height(10.dp))
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text("お気に入りの種類タブ", Modifier.weight(1f))
+            ToggleButton(settings.favoritesCategoryTabs) { actions.setFavoritesCategoryTabs(it) }
+        }
+        Text("アプリの種類は Apps パネルでアプリを長押し →「種類を変更」で変えられます", color = IhlColors.TextDim, fontSize = 10.sp, lineHeight = 13.sp)
         Spacer(Modifier.height(8.dp))
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Text("スケジュールの表示日数", Modifier.weight(1f))
